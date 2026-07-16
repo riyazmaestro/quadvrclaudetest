@@ -315,21 +315,45 @@ README.md             User-facing setup/controls/safety/troubleshooting docs.
   wall-crash fix) — such cases belong in `scripts/simTest.ts`'s deterministic fixed-step loop
   instead, `scripts/smokeTest.ts` should stick to logic/state assertions, not timing-derived ones.
 
+- **Added a toggleable ceiling boundary, a wall-bump animation, and reworked the drone's visuals.**
+  User asked for a fixed 9ft ceiling boundary, then (after being asked which button) chose **B**
+  (right controller) to toggle it. Added `CEILING_HEIGHT_M = 2.7432` (9ft) and
+  `CEILING_RESTITUTION` to `physics/constants.ts`; `QuadcopterPhysics` gained a public
+  `ceilingEnabled = true` field and a `handleCeilingCollision(floorY)` mirroring
+  `handleFloorCollision` (clamp + bounce, called from both `step()` and `applyFreeFall()`, gated on
+  `ceilingEnabled`). Unlike the wall boundary, the ceiling is **not** gated on `hasPolygon()` — it's
+  a fixed height off `floorY` alone, so it applies even on the desktop preview. `SceneSetup` gained
+  `setCeilingVisual(polygon, height)`/`hideCeilingVisual()`, refactored to share a
+  `buildClosedLoopLine()` helper with the existing floor `setBoundaryVisual()` (same room outline,
+  drawn again up at ceiling height). `Hud.ts` gained a small "CEILING ON/OFF" plate next to the
+  mode indicator. `B` reads via a new `ceilingToggleRequested` field on `FrameInput` (both
+  `ControllerInput.poll()` and `KeyboardInput.poll()`, the latter on `KeyC` for desktop parity).
+  **Wall-bump animation** (separate ask, "simple and sweet"): `RoomBoundary.resolve()`'s existing
+  `impactSpeedMs` return value (previously computed but discarded in `main.ts`) is now captured
+  across the substep loop (max per frame) and fed into a new `DroneModel.triggerBump(impactSpeedMs)`
+  — a squash-pulse scale animation (exponential decay back to resting scale, capped at
+  `BUMP_MAX = 0.22`) layered on top of the drone's existing cosmetic `BASE_SCALE`. **Drone visuals**
+  (separate ask): removed the red canopy dome entirely (`SphereGeometry` import dropped), brightened
+  body/arm/hub/duct materials from dark navy/near-black to a light bright finish (props stayed dark
+  for spin-blur contrast, camera lens stayed dark since it's meant to read as glass), and enlarged
+  the tail rod+flag with a stronger emissive glow (`emissiveIntensity: 1.2`) so it's the single most
+  eye-catching part of the model from any angle. Build verified green via GitHub Actions.
+
 ## Next steps (keep this section current)
-The app is deployed live (GitHub Pages, Actions-based deploy) and feature-complete including a
-manual walk-the-room calibration boundary with no circle fallback of any kind (see progress log
-for the two abandoned automatic-scan attempts that preceded it, and the same-day controls/UX
-redesign after the first calibration attempt's on-device feedback). Nothing is currently blocking.
-Remaining items:
+The app is deployed live (GitHub Pages, Actions-based deploy) and feature-complete: manual
+walk-the-room calibration boundary (no circle fallback), a toggleable fixed 9ft ceiling boundary,
+wall-bump visual feedback, and a brightened drone model with a prominent tail. Nothing is currently
+blocking. Remaining items:
 - [ ] Real in-headset testing pass (the one thing that genuinely can't be done from this
       machine) — flight feel (PID gains, drag, max angles/rates in `constants.ts`) is
       headless-sim-validated for physical plausibility but never felt by a human in AR.
-- [ ] On-device validation of THIS round's redesign specifically: does the new
-      trigger-engage/A-reset/X-redo-boundary/Y-mode/both-grips-kill mapping feel natural now, does
-      auto-closing the loop at 0.4m from the start point feel right (too twitchy/too loose?), does
-      `gripSpace ?? targetRaySpace` give a stable x/z reading while standing still at a corner, and
-      is the new tail actually visible/helpful for judging orientation in-headset.
-- [ ] Everything else is genuinely done: physics, XR session + calibrated boundary, input
-      (controller + keyboard), render, HUD, audio, HTTPS dev server, README, GitHub Pages
-      deployment, two independent review passes, 34/34 physics tests + full smoke test + clean
+- [ ] On-device validation of everything from this session's redesigns: does the
+      trigger-engage/A-reset/X-redo-boundary/Y-mode/B-ceiling/both-grips-kill mapping feel natural,
+      does auto-closing the calibration loop at 0.4m feel right, does `gripSpace ?? targetRaySpace`
+      give a stable x/z reading while standing still, is the tail visible/helpful for orientation,
+      does the wall-bump squash pulse read well or feel too subtle/too much, and does 9ft feel like
+      the right default ceiling height for real rooms.
+- [ ] Everything else is genuinely done: physics, XR session + calibrated boundary (floor + toggleable
+      ceiling), input (controller + keyboard), render, HUD, audio, HTTPS dev server, README, GitHub
+      Pages deployment, two independent review passes, 34/34 physics tests + full smoke test + clean
       build.
