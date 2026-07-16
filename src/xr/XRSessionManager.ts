@@ -61,6 +61,7 @@ export class XRSessionManager {
     try {
       await this.tryFetchBoundary(session);
       await this.renderer.xr.setSession(session);
+      await this.tryRequestHighFrameRate(session);
     } catch (err) {
       // Anything failing after requestSession() succeeded must not leave a half-registered
       // session lying around: a stray open XRSession blocks a retry (most runtimes reject a
@@ -98,6 +99,21 @@ export class XRSessionManager {
       }
     } catch {
       this.boundaryPolygon = null; // Guardian not stationary/bounded, or feature unsupported.
+    }
+  }
+
+  // Purely a comfort/smoothness nice-to-have for a physics-heavy sim — never allowed to fail the
+  // session start, since `updateTargetFrameRate`/`supportedFrameRates` are newer, inconsistently
+  // supported APIs (own try/catch here, on top of the caller's, so a rejection here can never be
+  // mistaken for a real session-start failure that should tear the session down).
+  private async tryRequestHighFrameRate(session: XRSession): Promise<void> {
+    try {
+      const rates = session.supportedFrameRates;
+      if (!rates || rates.length === 0) return;
+      const best = Math.max(...rates);
+      if (best > (session.frameRate ?? 0)) await session.updateTargetFrameRate(best);
+    } catch {
+      // Not supported on this runtime; three.js/the headset's default frame rate is used.
     }
   }
 }
