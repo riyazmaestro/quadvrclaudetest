@@ -55,10 +55,24 @@ const motorAudio = new MotorAudio();
 
 const statusLine = document.getElementById('status-line') as HTMLParagraphElement;
 const enterArBtn = document.getElementById('enter-ar-btn') as HTMLButtonElement;
+const enterArMiniatureBtn = document.getElementById('enter-ar-miniature-btn') as HTMLButtonElement;
+const landingMain = document.getElementById('landing-main') as HTMLDivElement;
+const comingSoon = document.getElementById('coming-soon') as HTMLDivElement;
+const comingSoonBackBtn = document.getElementById('coming-soon-back-btn') as HTMLButtonElement;
 const landing = document.getElementById('landing') as HTMLDivElement;
 const hudRoot = document.getElementById('hud-root') as HTMLDivElement;
 const calibrationOverlay = document.getElementById('calibration-overlay') as HTMLDivElement;
 const calibrationOverlayText = document.getElementById('calibration-overlay-text') as HTMLParagraphElement;
+
+// "Enter AR miniature" has no behavior yet — just a placeholder screen with a way back.
+enterArMiniatureBtn.addEventListener('click', () => {
+  landingMain.style.display = 'none';
+  comingSoon.classList.add('visible');
+});
+comingSoonBackBtn.addEventListener('click', () => {
+  comingSoon.classList.remove('visible');
+  landingMain.style.display = '';
+});
 
 // Desktop preview: lets the app be developed/tested without a headset (see scripts/smokeTest.ts).
 sceneSetup.camera.position.set(0, 1.4, 1.4);
