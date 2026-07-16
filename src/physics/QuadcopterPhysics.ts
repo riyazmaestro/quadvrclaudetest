@@ -24,6 +24,8 @@ import {
   FLOOR_RESTITUTION,
   FLOOR_FRICTION,
   BODY_RADIUS,
+  CEILING_HEIGHT_M,
+  CEILING_RESTITUTION,
 } from './constants';
 
 export type FlightMode = 'ACRO' | 'ANGLE';
@@ -103,6 +105,8 @@ export class QuadcopterPhysics {
   motorThrustCommand = [0, 0, 0, 0]; // N, target from mixer
 
   armed = false;
+  /** Toggleable via the pilot's B button (see ControllerInput) — on by default. */
+  ceilingEnabled = true;
 
   private ratePID = {
     roll: new PIDController(RATE_PID.roll),
@@ -220,6 +224,7 @@ export class QuadcopterPhysics {
     this.quaternion.normalize();
 
     this.handleFloorCollision(floorY);
+    if (this.ceilingEnabled) this.handleCeilingCollision(floorY);
   }
 
   private applyFreeFall(dt: number, floorY: number): void {
@@ -232,6 +237,7 @@ export class QuadcopterPhysics {
     this.quaternion.multiply(_spinDelta);
     this.quaternion.normalize();
     this.handleFloorCollision(floorY);
+    if (this.ceilingEnabled) this.handleCeilingCollision(floorY);
   }
 
   private integrateMotorLag(dt: number, targets: number[]): void {
@@ -250,6 +256,14 @@ export class QuadcopterPhysics {
       this.velocity.x *= FLOOR_FRICTION;
       this.velocity.z *= FLOOR_FRICTION;
       this.angularVelocity.multiplyScalar(0.5);
+    }
+  }
+
+  private handleCeilingCollision(floorY: number): void {
+    const ceilingContactY = floorY + CEILING_HEIGHT_M - BODY_RADIUS;
+    if (this.position.y > ceilingContactY) {
+      this.position.y = ceilingContactY;
+      if (this.velocity.y > 0) this.velocity.y = -this.velocity.y * CEILING_RESTITUTION;
     }
   }
 

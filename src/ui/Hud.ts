@@ -7,6 +7,7 @@ export interface HudData {
   speedMs: number;
   boundaryProximity: number; // 0 = safe, 1 = at/past the wall boundary
   flightTimeS: number; // seconds since last arm
+  ceilingEnabled: boolean;
 }
 
 const BOUNDARY_WARN_THRESHOLD = 0.6;
@@ -76,6 +77,7 @@ export class Hud {
       speedMs: 0,
       boundaryProximity: 0,
       flightTimeS: 0,
+      ceilingEnabled: true,
     });
     this.texture.needsUpdate = true;
   }
@@ -122,6 +124,13 @@ export class Hud {
     ctx.font = '700 22px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(data.flightMode, 244 + 65, 53);
+    ctx.textAlign = 'left';
+
+    this.drawPlate(244, 88, 130, 40);
+    ctx.fillStyle = data.ceilingEnabled ? '#eafff2' : 'rgba(234, 255, 242, 0.45)';
+    ctx.font = '700 15px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(data.ceilingEnabled ? 'CEILING ON' : 'CEILING OFF', 244 + 65, 108);
     ctx.textAlign = 'left';
 
     if (!data.armed) {

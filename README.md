@@ -73,6 +73,7 @@ gets a chance to run.
 | **A** (right controller) | Reset the drone to the center of the room (always leaves it disarmed) |
 | **X** (left controller) | Re-walk the room boundary from scratch |
 | **Y** (left controller) | Toggle ACRO ↔ ANGLE flight mode |
+| **B** (right controller) | Toggle the 9-foot ceiling boundary on/off |
 | **Both grips together** | Emergency kill switch — instantly cuts power, from any state |
 
 During the room-boundary walk (right after entering AR): **right trigger** drops a boundary point
@@ -96,6 +97,9 @@ conservative:
   space and mark it yourself (right trigger at each corner, walk back to the start to close the
   loop) — **that's the only source of the boundary; there is no fallback circle.** Flight can't
   start until you've marked at least 3 corners.
+- A fixed **9-foot ceiling boundary** (measured from your marked room's floor) is also enforced by
+  default, drawn as the same cyan outline up at ceiling height — press **B** to toggle it off if
+  your space needs otherwise.
 - A pulsing red glow appears on the in-headset HUD as the drone nears the boundary edge.
 - Squeeze both grips at any time to instantly cut power if the drone is headed somewhere bad.
 - Hitting the floor or the boundary wall just bounces the drone physically (with some restitution

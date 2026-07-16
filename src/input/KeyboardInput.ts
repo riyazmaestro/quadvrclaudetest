@@ -15,6 +15,7 @@ export class KeyboardInput implements InputSource {
   private prevSpace = false;
   private prevM = false;
   private prevR = false;
+  private prevC = false;
 
   constructor(target: EventTarget = window) {
     target.addEventListener('keydown', this.handleKeyDown as EventListener);
@@ -46,19 +47,33 @@ export class KeyboardInput implements InputSource {
     const space = this.keys.has('Space');
     const m = this.keys.has('KeyM');
     const r = this.keys.has('KeyR');
+    const c = this.keys.has('KeyC');
 
     if (space && !this.prevSpace) this.armed = !this.armed;
     if (m && !this.prevM) this.flightMode = this.flightMode === 'ANGLE' ? 'ACRO' : 'ANGLE';
     const resetRequested = r && !this.prevR;
     if (resetRequested) this.armed = false; // always require an explicit re-arm after a reset
+    const ceilingToggleRequested = c && !this.prevC;
     const killSwitch = this.keys.has('KeyX');
     if (killSwitch) this.armed = false;
 
     this.prevSpace = space;
     this.prevM = m;
     this.prevR = r;
+    this.prevC = c;
 
-    // No desktop key drives this — there's no calibration concept without a real headset walk.
-    return { throttle, pitch, roll, yaw, armed: this.armed, flightMode: this.flightMode, resetRequested, redoBoundaryRequested: false, killSwitch };
+    // No desktop key drives redoBoundaryRequested — there's no calibration concept without a real headset walk.
+    return {
+      throttle,
+      pitch,
+      roll,
+      yaw,
+      armed: this.armed,
+      flightMode: this.flightMode,
+      resetRequested,
+      redoBoundaryRequested: false,
+      ceilingToggleRequested,
+      killSwitch,
+    };
   }
 }

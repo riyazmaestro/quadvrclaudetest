@@ -7,6 +7,9 @@ import { shapeAxis, throttleFromAxis } from './stickShaping';
 // are a legacy touchpad placeholder (always 0 on Touch controllers, which have no touchpad),
 // the primary thumbstick is axes[2]/axes[3]. Buttons: [0] trigger, [1] squeeze/grip,
 // [3] thumbstick click, [4] A/X (lower face button), [5] B/Y (upper face button).
+//
+// In-flight bindings: right trigger = engage/disengage (toggle), A = reset to room center,
+// X = redo room boundary, Y = ACRO/ANGLE toggle, B = ceiling boundary on/off, both grips = kill switch.
 const AXIS_X = 2;
 const AXIS_Y = 3;
 const BTN_TRIGGER = 0;
@@ -54,6 +57,7 @@ export class ControllerInput implements InputSource {
     let roll = 0;
     let resetRequested = false;
     let redoBoundaryRequested = false;
+    let ceilingToggleRequested = false;
     let leftGripHeld = false;
     let rightGripHeld = false;
     let rightTriggerJustPressed = false;
@@ -86,6 +90,7 @@ export class ControllerInput implements InputSource {
             this.armed = false; // always require an explicit re-arm after a reset
           }
           if (state.trigger && !prev.trigger) rightTriggerJustPressed = true;
+          if (state.faceUpper && !prev.faceUpper) ceilingToggleRequested = true; // B
           rightGripHeld = state.grip;
         }
 
@@ -109,6 +114,7 @@ export class ControllerInput implements InputSource {
       flightMode: this.flightMode,
       resetRequested,
       redoBoundaryRequested,
+      ceilingToggleRequested,
       killSwitch,
     };
   }

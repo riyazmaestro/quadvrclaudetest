@@ -18,6 +18,7 @@ import type { BoundaryPoint } from '../xr/XRSessionManager';
 
 const BOUNDARY_Y = 0.01;
 const BOUNDARY_COLOR = 0x4fd1c5; // cyan: the pilot's own marked room boundary
+const CEILING_COLOR = 0x4fd1c5; // same cyan, just drawn up at ceiling height instead of the floor
 const CALIBRATION_COLOR = 0xe8ecf1; // near-white: in-progress calibration markers/pointer, distinct from the final boundary color
 
 export class SceneSetup {
@@ -25,6 +26,7 @@ export class SceneSetup {
   readonly camera = new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.02, 100);
   readonly renderer: WebGLRenderer;
   private boundaryLine: Line | null = null;
+  private ceilingLine: Line | null = null;
   private calibrationPointer: Mesh | null = null;
   private calibrationMarkers: Mesh[] = [];
   private calibrationLine: Line | null = null;
@@ -61,17 +63,25 @@ export class SceneSetup {
       this.boundaryLine = null;
     }
     if (polygon.length < 3) return;
-
-    const positions: number[] = [];
-    for (const p of polygon) positions.push(p.x, BOUNDARY_Y, p.z);
-    const first = polygon[0];
-    positions.push(first.x, BOUNDARY_Y, first.z); // close the loop
-
-    const geometry = new BufferGeometry();
-    geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
-    const material = new LineBasicMaterial({ color: BOUNDARY_COLOR, transparent: true, opacity: 0.55 });
-    this.boundaryLine = new Line(geometry, material);
+    this.boundaryLine = buildClosedLoopLine(polygon, BOUNDARY_Y, BOUNDARY_COLOR);
     this.scene.add(this.boundaryLine);
+  }
+
+  /** Draws the same room outline up at ceiling height, marking the toggleable ceiling boundary. */
+  setCeilingVisual(polygon: BoundaryPoint[], heightM: number): void {
+    this.hideCeilingVisual();
+    if (polygon.length < 3) return;
+    this.ceilingLine = buildClosedLoopLine(polygon, heightM, CEILING_COLOR);
+    this.scene.add(this.ceilingLine);
+  }
+
+  /** Removes the ceiling boundary line — call when the pilot toggles the ceiling off. */
+  hideCeilingVisual(): void {
+    if (!this.ceilingLine) return;
+    this.scene.remove(this.ceilingLine);
+    this.ceilingLine.geometry.dispose();
+    (this.ceilingLine.material as LineBasicMaterial).dispose();
+    this.ceilingLine = null;
   }
 
   /**
@@ -133,4 +143,16 @@ export class SceneSetup {
     this.setCalibrationPointer(null);
     this.setCalibrationPoints([]);
   }
+}
+
+function buildClosedLoopLine(polygon: BoundaryPoint[], y: number, color: number): Line {
+  const positions: number[] = [];
+  for (const p of polygon) positions.push(p.x, y, p.z);
+  const first = polygon[0];
+  positions.push(first.x, y, first.z); // close the loop
+
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+  const material = new LineBasicMaterial({ color, transparent: true, opacity: 0.55 });
+  return new Line(geometry, material);
 }

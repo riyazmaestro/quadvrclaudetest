@@ -9,7 +9,7 @@ import { ControllerInput } from './input/ControllerInput';
 import { KeyboardInput } from './input/KeyboardInput';
 import type { InputSource } from './input/types';
 import { QuadcopterPhysics } from './physics/QuadcopterPhysics';
-import { FIXED_DT, BODY_RADIUS } from './physics/constants';
+import { FIXED_DT, BODY_RADIUS, CEILING_HEIGHT_M } from './physics/constants';
 import { Hud, type HudData } from './ui/Hud';
 import { MotorAudio } from './audio/MotorAudio';
 
@@ -75,6 +75,7 @@ function enterCalibrating(): void {
 function finishCalibration(polygon: BoundaryPoint[]): void {
   roomBoundary.setPolygon(polygon);
   sceneSetup.setBoundaryVisual(roomBoundary.getPolygon());
+  if (physics.ceilingEnabled) sceneSetup.setCeilingVisual(roomBoundary.getPolygon(), CEILING_HEIGHT_M);
   physics.reset(new Vector3(roomBoundary.getCentroid().x, 1, roomBoundary.getCentroid().z));
   flightStartTime = performance.now();
   motorAudio.start();
@@ -154,6 +155,7 @@ const hudDataScratch: HudData = {
   speedMs: 0,
   boundaryProximity: 0,
   flightTimeS: 0,
+  ceilingEnabled: true,
 };
 
 sceneSetup.renderer.setAnimationLoop((_time, frame) => {
@@ -203,17 +205,30 @@ sceneSetup.renderer.setAnimationLoop((_time, frame) => {
           : SPAWN_POSITION.clone();
         physics.reset(resetPos);
       }
+      if (frameInput.ceilingToggleRequested) {
+        physics.ceilingEnabled = !physics.ceilingEnabled;
+        if (physics.ceilingEnabled && roomBoundary.hasPolygon()) {
+          sceneSetup.setCeilingVisual(roomBoundary.getPolygon(), CEILING_HEIGHT_M);
+        } else {
+          sceneSetup.hideCeilingVisual();
+        }
+      }
       if (physics.armed && !wasArmed) flightStartTime = now; // rising edge only, so a mid-flight disarm+rearm restarts the timer
       wasArmed = physics.armed;
 
       accumulator = Math.min(accumulator + frameDt, FIXED_DT * MAX_SUBSTEPS_PER_FRAME);
       let substeps = 0;
+      let wallImpactSpeedMs = 0;
       while (accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS_PER_FRAME) {
         physics.step(FIXED_DT, frameInput, 0);
-        if (roomBoundary.hasPolygon()) roomBoundary.resolve(physics.position, physics.velocity, BODY_RADIUS);
+        if (roomBoundary.hasPolygon()) {
+          const { impactSpeedMs } = roomBoundary.resolve(physics.position, physics.velocity, BODY_RADIUS);
+          if (impactSpeedMs > wallImpactSpeedMs) wallImpactSpeedMs = impactSpeedMs;
+        }
         accumulator -= FIXED_DT;
         substeps++;
       }
+      if (wallImpactSpeedMs > 0) drone.triggerBump(wallImpactSpeedMs);
 
       const telemetry = physics.getTelemetry(0);
       drone.root.position.copy(telemetry.position);
@@ -229,6 +244,7 @@ sceneSetup.renderer.setAnimationLoop((_time, frame) => {
       hudDataScratch.speedMs = telemetry.speedMs;
       hudDataScratch.boundaryProximity = boundaryProximity;
       hudDataScratch.flightTimeS = telemetry.armed ? (now - flightStartTime) / 1000 : 0;
+      hudDataScratch.ceilingEnabled = physics.ceilingEnabled;
       hud.update(hudDataScratch, sceneSetup.camera, frameDt);
 
       if (import.meta.env.DEV) {

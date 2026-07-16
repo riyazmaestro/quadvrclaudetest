@@ -77,3 +77,7 @@ export const ALT_HOLD_PID = { kP: 3.2, kI: 1.6, kD: 0.6, iMax: MASS * GRAVITY * 
 export const FLOOR_RESTITUTION = 0.15; // bounce fraction on hard floor contact
 export const FLOOR_FRICTION = 0.6; // horizontal velocity damping factor on floor contact
 export const BODY_RADIUS = 0.16; // m, approx bounding sphere radius for simple collisions
+
+// --- Ceiling (toggleable, see ControllerInput's B-button binding) ---
+export const CEILING_HEIGHT_M = 2.7432; // 9 feet above the floor, in meters
+export const CEILING_RESTITUTION = 0.15; // bounce fraction on ceiling contact, matches the floor's feel
