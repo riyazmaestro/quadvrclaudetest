@@ -111,6 +111,12 @@ export class QuadcopterPhysics {
     this.altHoldPID.reset();
   }
 
+  /** Forces the crashed/disarmed state, e.g. from a hard wall/boundary impact detected outside this class. */
+  triggerCrash(): void {
+    this.crashed = true;
+    this.armed = false;
+  }
+
   setArmed(armed: boolean): void {
     if (armed && this.crashed) return; // must reset before re-arming from a crash
     this.armed = armed;

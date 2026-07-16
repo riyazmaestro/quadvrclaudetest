@@ -8,7 +8,8 @@
  */
 import { Vector3 } from 'three';
 import { QuadcopterPhysics, ControlInput } from '../src/physics/QuadcopterPhysics';
-import { FIXED_DT, MASS, GRAVITY, MAX_THRUST_PER_MOTOR } from '../src/physics/constants';
+import { FIXED_DT, MASS, GRAVITY, MAX_THRUST_PER_MOTOR, BODY_RADIUS, WALL_CRASH_SPEED_THRESHOLD } from '../src/physics/constants';
+import { RoomBoundary } from '../src/xr/RoomBoundary';
 
 let failures = 0;
 let passed = 0;
@@ -209,6 +210,46 @@ console.log('\n=== Test 14: Alt-hold descend command (throttle < 0.5) decreases 
   assertNoNaN(q, 'alt-hold-descend');
   const t = q.getTelemetry(0);
   check('throttle < center descends', t.position.y < startY - 0.3, `y=${t.position.y.toFixed(3)} (start ${startY})`);
+}
+
+console.log('\n=== Test 15: Sustained full-deflection flight into the room boundary triggers a crash ===');
+{
+  // Regression test for a bug found in code review: wall/boundary impacts only reflected
+  // velocity (a plain bounce) and never checked impact speed against a crash threshold, so a
+  // fast wall hit left the drone armed at full thrust instead of crashing like a hard floor hit
+  // does. Drives physics.step() + roomBoundary.resolve() together exactly as main.ts's render
+  // loop does, deterministically (no rAF/wall-clock involved, unlike scripts/smokeTest.ts, which
+  // is why this specific case lives here instead: headless-Chromium rAF throttling makes
+  // real-time-based Playwright timing an unreliable way to verify a speed threshold).
+  // Uses WALL_CRASH_SPEED_THRESHOLD, not the floor's CRASH_SPEED_THRESHOLD: measured first-contact
+  // speed at full stick deflection from arena center is only ~2.2-2.9 m/s (this room is small;
+  // there isn't enough distance to reach the floor threshold's 3.0 m/s before hitting the wall).
+  const q = new QuadcopterPhysics();
+  const boundary = new RoomBoundary();
+  boundary.setFallbackRadius(1.75);
+  q.reset();
+  q.setArmed(true);
+
+  const steps = Math.round(3 / FIXED_DT);
+  let crashTriggeredAtStep = -1;
+  for (let i = 0; i < steps; i++) {
+    q.step(FIXED_DT, neutralInput({ roll: 1 }), -100); // -100: floor far below, isolates boundary collision from floor collision
+    const { impactSpeedMs } = boundary.resolve(q.position, q.velocity, BODY_RADIUS);
+    if (impactSpeedMs > WALL_CRASH_SPEED_THRESHOLD) {
+      q.triggerCrash();
+      crashTriggeredAtStep = i;
+      break;
+    }
+  }
+
+  assertNoNaN(q, 'boundary-ram');
+  check('sustained full-roll flight reaches the wall fast enough to crash', crashTriggeredAtStep >= 0, `crashTriggeredAtStep=${crashTriggeredAtStep}`);
+  check('crash auto-disarms after a wall impact', q.armed === false, `armed=${q.armed}`);
+  check(
+    'position stays within a small margin of the boundary radius (no tunneling through the wall)',
+    Math.hypot(q.position.x, q.position.z) < 1.75 + 0.1,
+    `dist=${Math.hypot(q.position.x, q.position.z).toFixed(3)}`
+  );
 }
 
 console.log(`\n=== RESULTS: ${passed} passed, ${failures} failed ===\n`);

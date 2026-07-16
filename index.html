@@ -3,11 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>quad-flight-xr</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Quad Flight XR</title>
+    <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <div id="app"></div>
+    <div id="landing">
+      <h1>Quad Flight XR</h1>
+      <p class="tagline">Fly a physically-simulated quadcopter in your living room.</p>
+      <button id="enter-ar-btn" disabled>Checking WebXR support&hellip;</button>
+      <ol class="instructions">
+        <li>Put on your headset and stand in the middle of clear floor space.</li>
+        <li>Tap <strong>Enter AR</strong> and allow camera / spatial data access.</li>
+        <li>Left stick: throttle (up/down) + yaw (left/right). Right stick: pitch/roll.</li>
+        <li><strong>Grip (either hand)</strong> arms/disarms the motors. <strong>A</strong> toggles ACRO/ANGLE mode. <strong>Y</strong> resets the drone to your feet.</li>
+        <li>Squeeze <strong>both triggers</strong> at once any time to instantly cut the motors.</li>
+      </ol>
+      <p id="status-line"></p>
+    </div>
+    <div id="hud-root"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

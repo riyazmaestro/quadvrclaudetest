@@ -1,60 +1,153 @@
-import './style.css'
-import typescriptLogo from './assets/typescript.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import { setupCounter } from './counter.ts'
+import './style.css';
+import { Vector3 } from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { SceneSetup } from './render/SceneSetup';
+import { DroneModel } from './render/DroneModel';
+import { XRSessionManager } from './xr/XRSessionManager';
+import { RoomBoundary } from './xr/RoomBoundary';
+import { ControllerInput } from './input/ControllerInput';
+import { KeyboardInput } from './input/KeyboardInput';
+import type { InputSource } from './input/types';
+import { QuadcopterPhysics } from './physics/QuadcopterPhysics';
+import { FIXED_DT, BODY_RADIUS, WALL_CRASH_SPEED_THRESHOLD } from './physics/constants';
+import { Hud } from './ui/Hud';
+import { MotorAudio } from './audio/MotorAudio';
 
-document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
-<section id="center">
-  <div class="hero">
-    <img src="${heroImg}" class="base" width="170" height="179">
-    <img src="${typescriptLogo}" class="framework" alt="TypeScript logo"/>
-    <img src="${viteLogo}" class="vite" alt="Vite logo" />
-  </div>
-  <div>
-    <h1>Get started</h1>
-    <p>Edit <code>src/main.ts</code> and save to test <code>HMR</code></p>
-  </div>
-  <button id="counter" type="button" class="counter"></button>
-</section>
+const FALLBACK_ARENA_RADIUS_M = 1.75;
+const MAX_SUBSTEPS_PER_FRAME = 8;
+const SPAWN_POSITION = new Vector3(0, 1, -1);
 
-<div class="ticks"></div>
+const sceneSetup = new SceneSetup();
+const drone = new DroneModel();
+sceneSetup.scene.add(drone.root);
+sceneSetup.setBoundaryVisual(null, FALLBACK_ARENA_RADIUS_M);
 
-<section id="next-steps">
-  <div id="docs">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#documentation-icon"></use></svg>
-    <h2>Documentation</h2>
-    <p>Your questions, answered</p>
-    <ul>
-      <li>
-        <a href="https://vite.dev/" target="_blank">
-          <img class="logo" src="${viteLogo}" alt="" />
-          Explore Vite
-        </a>
-      </li>
-      <li>
-        <a href="https://www.typescriptlang.org" target="_blank">
-          <img class="button-icon" src="${typescriptLogo}" alt="">
-          Learn more
-        </a>
-      </li>
-    </ul>
-  </div>
-  <div id="social">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#social-icon"></use></svg>
-    <h2>Connect with us</h2>
-    <p>Join the Vite community</p>
-    <ul>
-      <li><a href="https://github.com/vitejs/vite" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#github-icon"></use></svg>GitHub</a></li>
-      <li><a href="https://chat.vite.dev/" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#discord-icon"></use></svg>Discord</a></li>
-      <li><a href="https://x.com/vite_js" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#x-icon"></use></svg>X.com</a></li>
-      <li><a href="https://bsky.app/profile/vite.dev" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#bluesky-icon"></use></svg>Bluesky</a></li>
-    </ul>
-  </div>
-</section>
+const physics = new QuadcopterPhysics();
+const roomBoundary = new RoomBoundary();
+roomBoundary.setFallbackRadius(FALLBACK_ARENA_RADIUS_M);
 
-<div class="ticks"></div>
-<section id="spacer"></section>
-`
+const controllerInput = new ControllerInput();
+const keyboardInput = new KeyboardInput();
 
-setupCounter(document.querySelector<HTMLButtonElement>('#counter')!)
+const hud = new Hud();
+sceneSetup.scene.add(hud.object); // Hud repositions this to track the camera in world space every frame, not parented
+
+const motorAudio = new MotorAudio();
+
+const statusLine = document.getElementById('status-line') as HTMLParagraphElement;
+const enterArBtn = document.getElementById('enter-ar-btn') as HTMLButtonElement;
+const landing = document.getElementById('landing') as HTMLDivElement;
+const hudRoot = document.getElementById('hud-root') as HTMLDivElement;
+
+// Desktop preview: lets the app be developed/tested without a headset (see scripts/smokeTest.ts).
+sceneSetup.camera.position.set(0, 1.4, 1.4);
+const orbitControls = new OrbitControls(sceneSetup.camera, sceneSetup.renderer.domElement);
+orbitControls.target.copy(SPAWN_POSITION);
+orbitControls.update();
+
+let flightStartTime = performance.now();
+let wasArmed = false;
+
+const xrSessionManager = new XRSessionManager(sceneSetup.renderer, hudRoot, {
+  onSessionStart: (session) => {
+    controllerInput.setSession(session);
+    landing.style.display = 'none';
+    orbitControls.enabled = false;
+    roomBoundary.setPolygon(xrSessionManager.boundaryPolygon);
+    sceneSetup.setBoundaryVisual(xrSessionManager.boundaryPolygon, FALLBACK_ARENA_RADIUS_M);
+    physics.reset(SPAWN_POSITION.clone());
+    flightStartTime = performance.now();
+    motorAudio.start();
+  },
+  onSessionEnd: () => {
+    controllerInput.setSession(null);
+    landing.style.display = '';
+    orbitControls.enabled = true;
+    motorAudio.stop();
+  },
+});
+
+async function initEnterArButton(): Promise<void> {
+  const supported = await XRSessionManager.isArSupported();
+  if (!supported) {
+    enterArBtn.textContent = 'AR not supported here — desktop preview below';
+    statusLine.textContent = 'Open this page in the Meta Quest Browser to fly for real.';
+    return;
+  }
+  enterArBtn.disabled = false;
+  enterArBtn.textContent = 'Enter AR';
+  enterArBtn.addEventListener('click', async () => {
+    enterArBtn.disabled = true;
+    try {
+      await xrSessionManager.start();
+    } catch (err) {
+      statusLine.textContent = `Couldn't start AR: ${(err as Error).message}`;
+      statusLine.classList.add('error');
+      enterArBtn.disabled = false;
+    }
+  });
+}
+void initEnterArButton();
+
+let lastFrameTime = performance.now();
+let accumulator = 0;
+
+sceneSetup.renderer.setAnimationLoop(() => {
+  const now = performance.now();
+  const frameDt = Math.min(0.25, (now - lastFrameTime) / 1000);
+  lastFrameTime = now;
+
+  const activeInput: InputSource = xrSessionManager.isPresenting ? controllerInput : keyboardInput;
+  const frameInput = activeInput.poll();
+
+  physics.setArmed(frameInput.armed);
+  if (frameInput.resetRequested) {
+    physics.reset(SPAWN_POSITION.clone());
+  }
+  if (physics.armed && !wasArmed) flightStartTime = now; // rising edge only, so a mid-flight disarm+rearm restarts the timer
+  wasArmed = physics.armed;
+
+  accumulator = Math.min(accumulator + frameDt, FIXED_DT * MAX_SUBSTEPS_PER_FRAME);
+  let substeps = 0;
+  while (accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS_PER_FRAME) {
+    physics.step(FIXED_DT, frameInput, 0);
+    const { impactSpeedMs } = roomBoundary.resolve(physics.position, physics.velocity, BODY_RADIUS);
+    if (impactSpeedMs > WALL_CRASH_SPEED_THRESHOLD) physics.triggerCrash();
+    accumulator -= FIXED_DT;
+    substeps++;
+  }
+
+  const telemetry = physics.getTelemetry(0);
+  drone.root.position.copy(telemetry.position);
+  drone.root.quaternion.copy(telemetry.quaternion);
+  drone.update(frameDt, telemetry.motorNormalized, telemetry.armed);
+
+  const boundaryProximity = roomBoundary.proximity(telemetry.position.x, telemetry.position.z, BODY_RADIUS);
+  motorAudio.update(telemetry.motorNormalized, telemetry.armed);
+  hud.update(
+    {
+      armed: telemetry.armed,
+      flightMode: frameInput.flightMode,
+      altitudeM: telemetry.altitudeM,
+      speedMs: telemetry.speedMs,
+      crashed: telemetry.crashed,
+      boundaryProximity,
+      flightTimeS: telemetry.armed ? (now - flightStartTime) / 1000 : 0,
+    },
+    sceneSetup.camera,
+    frameDt
+  );
+
+  if (!xrSessionManager.isPresenting) orbitControls.update();
+  sceneSetup.renderer.render(sceneSetup.scene, sceneSetup.camera);
+
+  if (import.meta.env.DEV) {
+    // Dev-only hook: lets a headless smoke test (see scripts/smokeTest.ts) assert on real
+    // simulation state without a headset. Dead-code-eliminated from production builds.
+    (window as unknown as { __quadDebug: unknown }).__quadDebug = {
+      telemetry,
+      frameInput,
+      isPresenting: xrSessionManager.isPresenting,
+    };
+  }
+});

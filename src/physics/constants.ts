@@ -15,10 +15,13 @@ export const HALF_Z = 0.11; // m, half-span front/back
 export const ARM_LENGTH = Math.hypot(HALF_X, HALF_Z); // center-to-motor distance, ~0.1556 m
 
 // Diagonal moment of inertia tensor (kg*m^2), body frame, approximated for a small X-frame quad.
+// Axis-to-motion mapping matches Mixer.ts's derivation: rotation about X = pitch, about Z = roll,
+// about Y = yaw (both xx/zz are equal here since the frame is square, so this never mattered in
+// practice, but keep it right — an asymmetric frame would silently swap pitch/roll feel otherwise).
 export const INERTIA = {
-  xx: 0.0016, // roll axis
+  xx: 0.0016, // pitch axis
   yy: 0.0030, // yaw axis (usually largest, mass further from axis on avg)
-  zz: 0.0016, // pitch axis
+  zz: 0.0016, // roll axis
 };
 
 // --- Motors / propellers ---
@@ -74,5 +77,12 @@ export const ALT_HOLD_PID = { kP: 3.2, kI: 1.6, kD: 0.6, iMax: MASS * GRAVITY * 
 export const FLOOR_RESTITUTION = 0.15; // bounce fraction on hard floor contact
 export const FLOOR_FRICTION = 0.6; // horizontal velocity damping factor on floor contact
 export const CRASH_SPEED_THRESHOLD = 3.0; // m/s impact speed that triggers auto-disarm "crashed" state
+// Wall/boundary impacts need their OWN (lower) threshold: floor crashes are typically from a
+// fall (gravity has room to build vertical speed), but a lateral hit into the arena boundary is
+// capped by how much distance is available to accelerate over inside a small living room — full
+// stick deflection from the center of a 1.75m-radius arena only reaches ~2.2-2.9 m/s by the time
+// the drone first touches the wall (measured empirically, see scripts/simTest.ts Test 15), so
+// reusing CRASH_SPEED_THRESHOLD here would almost never fire.
+export const WALL_CRASH_SPEED_THRESHOLD = 2.0; // m/s outward impact speed that crashes on a wall/boundary hit
 export const PROP_RADIUS = 0.035; // m, purely visual/collision margin for body radius approx
 export const BODY_RADIUS = 0.16; // m, approx bounding sphere radius for simple collisions

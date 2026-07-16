@@ -10,7 +10,11 @@ export class PIDController {
   private prevError = 0;
   private hasPrev = false;
 
-  constructor(private gains: PIDGains) {}
+  private gains: PIDGains;
+
+  constructor(gains: PIDGains) {
+    this.gains = gains;
+  }
 
   reset(): void {
     this.integral = 0;
