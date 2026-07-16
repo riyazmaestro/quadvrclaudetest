@@ -1,5 +1,5 @@
 import type { FlightMode } from '../physics/QuadcopterPhysics';
-import type { FrameInput, InputSource } from './types';
+import type { CalibrationInput, FrameInput, InputSource } from './types';
 import { shapeAxis, throttleFromAxis } from './stickShaping';
 
 // xr-standard gamepad mapping for Meta Touch/Touch Plus controllers (confirmed against the
@@ -110,6 +110,53 @@ export class ControllerInput implements InputSource {
       resetRequested,
       killSwitch,
     };
+  }
+
+  /**
+   * Input for the pre-flight boundary-calibration walk (see RoomBoundary/main.ts): right hand
+   * points (its own floor position is the candidate boundary point, no raycasting), left hand
+   * controls the flow. Safe to share `poll()`'s per-hand edge-detection scratch state since the
+   * two methods are never called on the same frame (main.ts phase-gates between them).
+   */
+  pollCalibration(frame: XRFrame | undefined, referenceSpace: XRReferenceSpace | null): CalibrationInput {
+    let pointer: { x: number; z: number } | null = null;
+    let placeRequested = false;
+    let undoRequested = false;
+    let finishRequested = false;
+    let skipRequested = false;
+
+    if (this.session) {
+      for (const source of this.session.inputSources) {
+        const gamepad = source.gamepad;
+        if (!gamepad || (source.handedness !== 'left' && source.handedness !== 'right')) continue;
+
+        const isLeft = source.handedness === 'left';
+        const state = isLeft ? this.curLeft : this.curRight;
+        const prev = isLeft ? this.prevLeft : this.prevRight;
+        readButtonsInto(gamepad, state);
+
+        if (isLeft) {
+          if (state.faceLower && !prev.faceLower) finishRequested = true;
+          if (state.faceUpper && !prev.faceUpper) skipRequested = true;
+        } else {
+          if (state.trigger && !prev.trigger) placeRequested = true;
+          if (state.grip && !prev.grip) undoRequested = true;
+
+          if (frame && referenceSpace) {
+            const space = source.gripSpace ?? source.targetRaySpace;
+            const pose = frame.getPose(space, referenceSpace);
+            if (pose) {
+              const m = pose.transform.matrix;
+              pointer = { x: m[12], z: m[14] };
+            }
+          }
+        }
+
+        copyHandState(state, prev);
+      }
+    }
+
+    return { pointer, placeRequested, undoRequested, finishRequested, skipRequested };
   }
 }
 

@@ -92,7 +92,7 @@ html, body {
   display: block;
 }
 
-.scan-overlay {
+.calibration-overlay {
   display: none;
   position: absolute;
   top: 12%;
@@ -107,6 +107,6 @@ html, body {
   line-height: 1.5;
 }
 
-.scan-overlay.visible {
+.calibration-overlay.visible {
   display: block;
 }

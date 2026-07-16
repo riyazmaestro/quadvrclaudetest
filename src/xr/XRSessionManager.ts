@@ -4,9 +4,14 @@ import type { WebGLRenderer } from 'three';
 // default 'local-floor' and never pointed at 'bounded-floor': WebXRManager.setSession() awaits
 // session.requestReferenceSpace(type) with NO fallback on rejection (verified by reading
 // three.module.js), so requesting an unsupported type would hard-fail the entire session. The
-// real room boundary is instead sourced from the WebXR 'plane-detection' feature (see
-// getFloorPolygon() below), read directly off the per-frame XRFrame passed into the render loop,
-// independent of whatever reference space three trusts for rendering.
+// real room boundary is instead sourced from a manual walk-the-room calibration (the user places
+// boundary points by standing at each corner and pressing a controller button — see
+// ControllerInput.pollCalibration() and main.ts's 'calibrating' phase), which reads controller
+// poses directly off the per-frame XRFrame, independent of whatever reference space three trusts
+// for rendering. (Both Guardian's `bounded-floor` boundsGeometry and the WebXR 'plane-detection'
+// feature were tried and abandoned here — both are documented, real-world-confirmed to return
+// coarse/incorrect rectangular approximations rather than the true room shape on current Quest
+// software, even with Room Setup completed.)
 const RENDER_REFERENCE_SPACE = 'local-floor';
 
 export interface BoundaryPoint {
@@ -50,7 +55,7 @@ export class XRSessionManager {
 
     const session = await navigator.xr.requestSession('immersive-ar', {
       requiredFeatures: ['local-floor'],
-      optionalFeatures: ['plane-detection', 'hand-tracking', 'dom-overlay'],
+      optionalFeatures: ['hand-tracking', 'dom-overlay'],
       domOverlay: { root: this.hudRoot },
     });
 
@@ -87,45 +92,6 @@ export class XRSessionManager {
     this.callbacks.onSessionEnd?.();
   };
 
-  /**
-   * Reads the real room's floor extent from the WebXR 'plane-detection' feature for this frame,
-   * or null if unsupported/nothing plausible has been found yet (caller falls back to the
-   * circle). Prefers a plane semantically labeled 'floor' (a Meta extension to the spec); when no
-   * runtime exposes labels, falls back to the largest horizontal plane, since a room's floor is
-   * reliably the biggest horizontal surface a headset detects.
-   */
-  getFloorPolygon(frame: XRFrame, referenceSpace: XRReferenceSpace): BoundaryPoint[] | null {
-    const planes = frame.detectedPlanes;
-    if (!planes || planes.size === 0) return null;
-
-    let best: XRPlane | null = null;
-    let bestArea = -Infinity;
-    let bestIsLabeledFloor = false;
-    for (const plane of planes) {
-      if (plane.orientation !== 'horizontal' || plane.polygon.length < 3) continue;
-      const isLabeledFloor = plane.semanticLabel === 'floor';
-      const area = polygonArea(plane.polygon);
-      // A labeled floor always wins over an unlabeled plane regardless of area; among planes with
-      // the same label status, the largest one wins (the room's floor is its biggest horizontal
-      // surface, e.g. bigger than a tabletop or shelf).
-      if (best === null || (isLabeledFloor && !bestIsLabeledFloor) || (isLabeledFloor === bestIsLabeledFloor && area > bestArea)) {
-        best = plane;
-        bestArea = area;
-        bestIsLabeledFloor = isLabeledFloor;
-      }
-    }
-    if (!best) return null;
-
-    const pose = frame.getPose(best.planeSpace, referenceSpace);
-    if (!pose) return null;
-
-    const m = pose.transform.matrix;
-    return best.polygon.map((p) => ({
-      x: m[0] * p.x + m[8] * p.z + m[12],
-      z: m[2] * p.x + m[10] * p.z + m[14],
-    }));
-  }
-
   // Purely a comfort/smoothness nice-to-have for a physics-heavy sim — never allowed to fail the
   // session start, since `updateTargetFrameRate`/`supportedFrameRates` are newer, inconsistently
   // supported APIs (own try/catch here, on top of the caller's, so a rejection here can never be
@@ -140,14 +106,4 @@ export class XRSessionManager {
       // Not supported on this runtime; three.js/the headset's default frame rate is used.
     }
   }
-}
-
-function polygonArea(polygon: readonly DOMPointReadOnly[]): number {
-  let area = 0;
-  for (let i = 0; i < polygon.length; i++) {
-    const a = polygon[i];
-    const b = polygon[(i + 1) % polygon.length];
-    area += a.x * b.z - b.x * a.z;
-  }
-  return Math.abs(area) / 2;
 }

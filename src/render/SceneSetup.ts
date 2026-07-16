@@ -2,11 +2,16 @@ import {
   AmbientLight,
   BufferGeometry,
   DirectionalLight,
+  DoubleSide,
   Float32BufferAttribute,
   Line,
   LineBasicMaterial,
+  Mesh,
+  MeshBasicMaterial,
   PerspectiveCamera,
+  RingGeometry,
   Scene,
+  SphereGeometry,
   WebGLRenderer,
 } from 'three';
 import type { BoundaryPoint } from '../xr/XRSessionManager';
@@ -14,6 +19,7 @@ import type { BoundaryPoint } from '../xr/XRSessionManager';
 const BOUNDARY_Y = 0.01;
 const SCANNED_BOUNDARY_COLOR = 0x4fd1c5; // cyan: a real (sanity-checked) room-scan reading
 const FALLBACK_BOUNDARY_COLOR = 0xd9a441; // amber: safe-default circle, not the real room shape
+const CALIBRATION_COLOR = 0xe8ecf1; // near-white: in-progress calibration markers/pointer, distinct from either final boundary color
 const CIRCLE_SEGMENTS = 48;
 
 export class SceneSetup {
@@ -21,6 +27,9 @@ export class SceneSetup {
   readonly camera = new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.02, 100);
   readonly renderer: WebGLRenderer;
   private boundaryLine: Line | null = null;
+  private calibrationPointer: Mesh | null = null;
+  private calibrationMarkers: Mesh[] = [];
+  private calibrationLine: Line | null = null;
 
   constructor() {
     this.scene.background = null; // transparent so passthrough camera feed shows through
@@ -66,6 +75,66 @@ export class SceneSetup {
     const material = new LineBasicMaterial({ color, transparent: true, opacity: 0.55 });
     this.boundaryLine = new Line(geometry, material);
     this.scene.add(this.boundaryLine);
+  }
+
+  /**
+   * Shows/moves a "aim here" ghost ring at the calibration pointer's current floor position
+   * (right controller, see ControllerInput.pollCalibration), or hides it when null. Called every
+   * animation frame during calibration, so the ring is created once and just repositioned/toggled
+   * rather than disposed and recreated each call.
+   */
+  setCalibrationPointer(position: BoundaryPoint | null): void {
+    if (!this.calibrationPointer) {
+      const geometry = new RingGeometry(0.05, 0.07, 24);
+      geometry.rotateX(-Math.PI / 2); // flat on the floor plane, matching the boundary line's orientation
+      const material = new MeshBasicMaterial({ color: CALIBRATION_COLOR, transparent: true, opacity: 0.85, side: DoubleSide });
+      this.calibrationPointer = new Mesh(geometry, material);
+      this.scene.add(this.calibrationPointer);
+    }
+    this.calibrationPointer.visible = position !== null;
+    if (position) this.calibrationPointer.position.set(position.x, BOUNDARY_Y, position.z);
+  }
+
+  /**
+   * Draws the corners placed so far (small markers) and an open connecting line — deliberately
+   * NOT closed into a loop, unlike setBoundaryVisual(), since calibration isn't a room shape yet
+   * until the pilot confirms it. Only called on place/undo (infrequent), so dispose+recreate is
+   * fine here, unlike the ghost pointer above.
+   */
+  setCalibrationPoints(points: BoundaryPoint[]): void {
+    for (const marker of this.calibrationMarkers) {
+      this.scene.remove(marker);
+      marker.geometry.dispose();
+      (marker.material as MeshBasicMaterial).dispose();
+    }
+    this.calibrationMarkers = points.map((p) => {
+      const marker = new Mesh(new SphereGeometry(0.04, 12, 8), new MeshBasicMaterial({ color: CALIBRATION_COLOR }));
+      marker.position.set(p.x, BOUNDARY_Y, p.z);
+      this.scene.add(marker);
+      return marker;
+    });
+
+    if (this.calibrationLine) {
+      this.scene.remove(this.calibrationLine);
+      this.calibrationLine.geometry.dispose();
+      (this.calibrationLine.material as LineBasicMaterial).dispose();
+      this.calibrationLine = null;
+    }
+    if (points.length >= 2) {
+      const positions: number[] = [];
+      for (const p of points) positions.push(p.x, BOUNDARY_Y, p.z);
+      const geometry = new BufferGeometry();
+      geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+      const material = new LineBasicMaterial({ color: CALIBRATION_COLOR, transparent: true, opacity: 0.7 });
+      this.calibrationLine = new Line(geometry, material);
+      this.scene.add(this.calibrationLine);
+    }
+  }
+
+  /** Hides the ghost pointer and clears placed-corner markers/line — call once calibration ends. */
+  clearCalibrationVisuals(): void {
+    this.setCalibrationPointer(null);
+    this.setCalibrationPoints([]);
   }
 }
 

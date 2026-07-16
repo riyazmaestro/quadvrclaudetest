@@ -16,12 +16,7 @@ import { MotorAudio } from './audio/MotorAudio';
 const FALLBACK_ARENA_RADIUS_M = 4;
 const MAX_SUBSTEPS_PER_FRAME = 8;
 const SPAWN_POSITION = new Vector3(0, 1, -1);
-// Consecutive frames a plane-detection floor reading must keep showing up before the scan locks
-// in — not a shape/stability comparison (too fussy given plane-detection keeps refining the same
-// physical plane frame to frame), just "did we see a real floor at all," repeated for ~1-1.5s of
-// typical Quest frame rates so a single noisy/missing-plane frame can't finalize (or reset) early.
-const SCAN_STABLE_FRAMES_REQUIRED = 90;
-const SCAN_TIMEOUT_MS = 8000;
+const MIN_CALIBRATION_POINTS = 3;
 
 const sceneSetup = new SceneSetup();
 const drone = new DroneModel();
@@ -43,8 +38,8 @@ const statusLine = document.getElementById('status-line') as HTMLParagraphElemen
 const enterArBtn = document.getElementById('enter-ar-btn') as HTMLButtonElement;
 const landing = document.getElementById('landing') as HTMLDivElement;
 const hudRoot = document.getElementById('hud-root') as HTMLDivElement;
-const scanOverlay = document.getElementById('scan-overlay') as HTMLDivElement;
-const scanOverlayText = document.getElementById('scan-overlay-text') as HTMLParagraphElement;
+const calibrationOverlay = document.getElementById('calibration-overlay') as HTMLDivElement;
+const calibrationOverlayText = document.getElementById('calibration-overlay-text') as HTMLParagraphElement;
 
 // Desktop preview: lets the app be developed/tested without a headset (see scripts/smokeTest.ts).
 sceneSetup.camera.position.set(0, 1.4, 1.4);
@@ -55,23 +50,24 @@ orbitControls.update();
 let flightStartTime = performance.now();
 let wasArmed = false;
 
-// The app's only phase state: 'landing' (pre-session) -> 'scanning' (session just started, room
-// being mapped) -> 'flying' (boundary locked in, physics/input live). Flight stays gated off
-// during 'scanning' so the drone can't be armed before its boundary actually means anything.
-type Phase = 'landing' | 'scanning' | 'flying';
+// The app's only phase state: 'landing' (pre-session) -> 'calibrating' (session just started, the
+// pilot is walking the room's corners) -> 'flying' (boundary locked in, physics/input live).
+// Flight stays gated off during 'calibrating' so the drone can't be armed before its boundary
+// actually means anything.
+type Phase = 'landing' | 'calibrating' | 'flying';
 let phase: Phase = 'landing';
-let scanStableFrames = 0;
-let scanStartTime = 0;
-let lastPlausiblePolygon: BoundaryPoint[] | null = null;
+let calibrationPoints: BoundaryPoint[] = [];
 
-/** Locks in the boundary (scanned polygon, or null to fall back to the circle) and starts flight. */
-function finishScan(polygon: BoundaryPoint[] | null): void {
+/** Locks in the boundary (calibrated polygon, or null to fall back to the circle) and starts flight. */
+function finishCalibration(polygon: BoundaryPoint[] | null): void {
   roomBoundary.setPolygon(polygon);
   sceneSetup.setBoundaryVisual(roomBoundary.getVisualBoundary());
   physics.reset(SPAWN_POSITION.clone());
   flightStartTime = performance.now();
   motorAudio.start();
-  scanOverlay.classList.remove('visible');
+  calibrationOverlay.classList.remove('visible');
+  sceneSetup.clearCalibrationVisuals();
+  calibrationPoints = [];
   phase = 'flying';
 }
 
@@ -80,19 +76,18 @@ const xrSessionManager = new XRSessionManager(sceneSetup.renderer, hudRoot, {
     controllerInput.setSession(session);
     landing.style.display = 'none';
     orbitControls.enabled = false;
-    phase = 'scanning';
-    scanStableFrames = 0;
-    scanStartTime = performance.now();
-    lastPlausiblePolygon = null;
-    scanOverlayText.textContent = 'Look around the room to map your flying space…';
-    scanOverlay.classList.add('visible');
+    phase = 'calibrating';
+    calibrationPoints = [];
+    calibrationOverlayText.textContent = 'Walk to a corner of your flying space and pull the right trigger to drop a point.';
+    calibrationOverlay.classList.add('visible');
   },
   onSessionEnd: () => {
     controllerInput.setSession(null);
     landing.style.display = '';
     orbitControls.enabled = true;
     motorAudio.stop();
-    scanOverlay.classList.remove('visible');
+    calibrationOverlay.classList.remove('visible');
+    sceneSetup.clearCalibrationVisuals();
     phase = 'landing';
   },
   onVisibilityChange: (visibilityState) => {
@@ -125,6 +120,14 @@ async function initEnterArButton(): Promise<void> {
 }
 void initEnterArButton();
 
+/** Picks the right overlay message for the current calibration state — no new UI subsystem, just text. */
+function calibrationStatusText(pointer: { x: number; z: number } | null, pointCount: number, finishedTooEarly: boolean): string {
+  if (finishedTooEarly) return `Place at least ${MIN_CALIBRATION_POINTS} corners first.`;
+  if (pointer === null) return 'Controller not detected — hold up your right controller.';
+  if (pointCount >= MIN_CALIBRATION_POINTS) return `${pointCount} corners placed — press X to finish, or keep walking. Y skips to a default circle.`;
+  return `Walk to a corner of your flying space and pull the right trigger to drop a point (${pointCount} so far).`;
+}
+
 let lastFrameTime = performance.now();
 let accumulator = 0;
 
@@ -144,24 +147,31 @@ sceneSetup.renderer.setAnimationLoop((_time, frame) => {
   const frameDt = Math.min(0.25, (now - lastFrameTime) / 1000);
   lastFrameTime = now;
 
-  if (phase === 'scanning') {
+  if (phase === 'calibrating') {
     const referenceSpace = sceneSetup.renderer.xr.getReferenceSpace();
-    const candidate = frame && referenceSpace ? xrSessionManager.getFloorPolygon(frame, referenceSpace) : null;
-    scanStableFrames = candidate ? scanStableFrames + 1 : 0;
-    if (candidate) lastPlausiblePolygon = candidate;
-    scanOverlayText.textContent = candidate
-      ? `Mapping room… ${Math.min(scanStableFrames, SCAN_STABLE_FRAMES_REQUIRED)}/${SCAN_STABLE_FRAMES_REQUIRED}`
-      : 'Look around the room to map your flying space…';
+    const calInput = controllerInput.pollCalibration(frame, referenceSpace);
+    sceneSetup.setCalibrationPointer(calInput.pointer);
 
-    if (scanStableFrames >= SCAN_STABLE_FRAMES_REQUIRED) {
-      finishScan(lastPlausiblePolygon);
-    } else if (now - scanStartTime > SCAN_TIMEOUT_MS) {
-      finishScan(null); // No plausible floor found in time — RoomBoundary falls back to the circle.
+    if (calInput.placeRequested && calInput.pointer) {
+      calibrationPoints.push(calInput.pointer);
+      sceneSetup.setCalibrationPoints(calibrationPoints);
+    } else if (calInput.undoRequested && calibrationPoints.length > 0) {
+      calibrationPoints.pop();
+      sceneSetup.setCalibrationPoints(calibrationPoints);
+    }
+
+    const finishedTooEarly = calInput.finishRequested && calibrationPoints.length < MIN_CALIBRATION_POINTS;
+    if (calInput.skipRequested) {
+      finishCalibration(null); // Bail out to the default circle — RoomBoundary.setPolygon(null) handles it.
+    } else if (calInput.finishRequested && calibrationPoints.length >= MIN_CALIBRATION_POINTS) {
+      finishCalibration([...calibrationPoints]);
+    } else {
+      calibrationOverlayText.textContent = calibrationStatusText(calInput.pointer, calibrationPoints.length, finishedTooEarly);
     }
   }
 
-  // Gated off during 'scanning' so the drone can't be armed/stepped before its boundary is locked
-  // in; always runs on desktop (no XR session ever enters 'scanning' there, see onSessionStart).
+  // Gated off during 'calibrating' so the drone can't be armed/stepped before its boundary is
+  // locked in; always runs on desktop (no XR session ever enters 'calibrating' there, see onSessionStart).
   if (phase === 'flying' || !xrSessionManager.isPresenting) {
     const activeInput: InputSource = xrSessionManager.isPresenting ? controllerInput : keyboardInput;
     const frameInput = activeInput.poll();

@@ -1,9 +1,9 @@
 import { Vector3 } from 'three';
 import type { BoundaryPoint } from './XRSessionManager';
 
-// Guardian boundary polygons are convex in practice but winding direction (CW/CCW) is not
-// guaranteed by the spec, so inward-normal sign is resolved per-edge against the polygon
-// centroid rather than assumed from winding order.
+// A pilot walking the room's perimeter to calibrate it can go either clockwise or counterclockwise,
+// so winding direction (CW/CCW) can't be assumed — inward-normal sign is resolved per-edge against
+// the polygon centroid instead.
 const DEFAULT_RADIUS_M = 2.5;
 const PROXIMITY_WARN_MARGIN_M = 0.5;
 const WALL_RESTITUTION = 0.35;
@@ -27,9 +27,9 @@ export class RoomBoundary {
   private configuredFallbackRadius = DEFAULT_RADIUS_M;
   private effectiveFallbackRadius = DEFAULT_RADIUS_M;
 
-  // A room-scan polygon (WebXR plane-detection floor plane, see XRSessionManager.getFloorPolygon)
-  // can end up implausibly small if the scan is cut short (timeout) before the headset has looked
-  // around enough of the room. A polygon this small is more likely an incomplete scan than a
+  // A manually-calibrated polygon (see main.ts's 'calibrating' phase / ControllerInput.pollCalibration)
+  // can end up implausibly small if the pilot rushes it — too few corners placed, or corners placed
+  // too close together/misjudged. A polygon this small is more likely a rushed calibration than a
   // genuinely tiny room, so its exact SHAPE is rejected in favor of the circular fallback — but
   // its size is still taken as a conservative hint (see setPolygon): if the real room genuinely
   // is that small, using the larger default circle instead would fail unsafe (letting the drone
