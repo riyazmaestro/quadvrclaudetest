@@ -8,8 +8,7 @@
  */
 import { Vector3 } from 'three';
 import { QuadcopterPhysics, ControlInput } from '../src/physics/QuadcopterPhysics';
-import { FIXED_DT, MASS, GRAVITY, MAX_THRUST_PER_MOTOR, BODY_RADIUS, WALL_CRASH_SPEED_THRESHOLD } from '../src/physics/constants';
-import { RoomBoundary } from '../src/xr/RoomBoundary';
+import { FIXED_DT, MASS, GRAVITY, MAX_THRUST_PER_MOTOR } from '../src/physics/constants';
 
 let failures = 0;
 let passed = 0;
@@ -153,42 +152,29 @@ console.log('\n=== Test 9: ACRO mode full-deflection stress test stays finite an
   check('acro stress: speed bounded (< 50 m/s)', t.speedMs < 50, `speed=${t.speedMs.toFixed(2)}`);
 }
 
-console.log('\n=== Test 10: Crash detection on hard floor impact (ACRO, motors off, free fall from 3m) ===');
+console.log('\n=== Test 10: Hard floor impact (ACRO, motors off, free fall from 3m) bounces but stays armed ===');
 {
   const q = new QuadcopterPhysics();
   q.reset(new Vector3(0, 3, 0));
   q.setArmed(true);
   runSteps(q, neutralInput({ throttle: 0, flightMode: 'ACRO' }), 2, 0);
+  assertNoNaN(q, 'hard-floor-impact');
   const t = q.getTelemetry(0);
-  check('hard impact triggers crashed state', t.crashed === true, `crashed=${t.crashed} y=${t.position.y.toFixed(3)}`);
-  check('crash auto-disarms', t.armed === false, `armed=${t.armed}`);
+  check('hard impact does not disarm', t.armed === true, `armed=${t.armed} y=${t.position.y.toFixed(3)}`);
+  check('hard impact settles to rest near the floor', t.position.y < 0.3, `y=${t.position.y.toFixed(3)}`);
 }
 
-console.log('\n=== Test 11: Gentle landing (ACRO, slightly below hover throttle) does NOT trigger crash ===');
+console.log('\n=== Test 11: Gentle landing (ACRO, slightly below hover throttle) stays armed ===');
 {
   const q = new QuadcopterPhysics();
   q.reset(new Vector3(0, 0.5, 0));
   q.setArmed(true);
   runSteps(q, neutralInput({ throttle: ACRO_HOVER_THROTTLE * 0.85, flightMode: 'ACRO' }), 3, 0);
   const t = q.getTelemetry(0);
-  check('gentle descent does not crash', t.crashed === false, `crashed=${t.crashed}`);
+  check('gentle descent stays armed', t.armed === true, `armed=${t.armed}`);
 }
 
-console.log('\n=== Test 12: Re-arming after crash requires explicit reset ===');
-{
-  const q = new QuadcopterPhysics();
-  q.reset(new Vector3(0, 3, 0));
-  q.setArmed(true);
-  runSteps(q, neutralInput({ throttle: 0, flightMode: 'ACRO' }), 2, 0);
-  check('crashed before re-arm attempt', q.crashed === true);
-  q.setArmed(true); // should be a no-op while crashed
-  check('setArmed(true) ignored while crashed', q.armed === false, `armed=${q.armed}`);
-  q.reset();
-  q.setArmed(true);
-  check('armed successfully after reset()', q.armed === true, `armed=${q.armed}`);
-}
-
-console.log('\n=== Test 13: Alt-hold climb command (throttle > 0.5) increases altitude ===');
+console.log('\n=== Test 12: Alt-hold climb command (throttle > 0.5) increases altitude ===');
 {
   const q = new QuadcopterPhysics();
   q.reset();
@@ -200,7 +186,7 @@ console.log('\n=== Test 13: Alt-hold climb command (throttle > 0.5) increases al
   check('throttle > center climbs', t.position.y > startY + 0.3, `y=${t.position.y.toFixed(3)} (start ${startY})`);
 }
 
-console.log('\n=== Test 14: Alt-hold descend command (throttle < 0.5) decreases altitude ===');
+console.log('\n=== Test 13: Alt-hold descend command (throttle < 0.5) decreases altitude ===');
 {
   const q = new QuadcopterPhysics();
   q.reset();
@@ -210,46 +196,6 @@ console.log('\n=== Test 14: Alt-hold descend command (throttle < 0.5) decreases 
   assertNoNaN(q, 'alt-hold-descend');
   const t = q.getTelemetry(0);
   check('throttle < center descends', t.position.y < startY - 0.3, `y=${t.position.y.toFixed(3)} (start ${startY})`);
-}
-
-console.log('\n=== Test 15: Sustained full-deflection flight into the room boundary triggers a crash ===');
-{
-  // Regression test for a bug found in code review: wall/boundary impacts only reflected
-  // velocity (a plain bounce) and never checked impact speed against a crash threshold, so a
-  // fast wall hit left the drone armed at full thrust instead of crashing like a hard floor hit
-  // does. Drives physics.step() + roomBoundary.resolve() together exactly as main.ts's render
-  // loop does, deterministically (no rAF/wall-clock involved, unlike scripts/smokeTest.ts, which
-  // is why this specific case lives here instead: headless-Chromium rAF throttling makes
-  // real-time-based Playwright timing an unreliable way to verify a speed threshold).
-  // Uses WALL_CRASH_SPEED_THRESHOLD, not the floor's CRASH_SPEED_THRESHOLD: measured first-contact
-  // speed at full stick deflection from arena center is only ~2.2-2.9 m/s (this room is small;
-  // there isn't enough distance to reach the floor threshold's 3.0 m/s before hitting the wall).
-  const q = new QuadcopterPhysics();
-  const boundary = new RoomBoundary();
-  boundary.setFallbackRadius(1.75);
-  q.reset();
-  q.setArmed(true);
-
-  const steps = Math.round(3 / FIXED_DT);
-  let crashTriggeredAtStep = -1;
-  for (let i = 0; i < steps; i++) {
-    q.step(FIXED_DT, neutralInput({ roll: 1 }), -100); // -100: floor far below, isolates boundary collision from floor collision
-    const { impactSpeedMs } = boundary.resolve(q.position, q.velocity, BODY_RADIUS);
-    if (impactSpeedMs > WALL_CRASH_SPEED_THRESHOLD) {
-      q.triggerCrash();
-      crashTriggeredAtStep = i;
-      break;
-    }
-  }
-
-  assertNoNaN(q, 'boundary-ram');
-  check('sustained full-roll flight reaches the wall fast enough to crash', crashTriggeredAtStep >= 0, `crashTriggeredAtStep=${crashTriggeredAtStep}`);
-  check('crash auto-disarms after a wall impact', q.armed === false, `armed=${q.armed}`);
-  check(
-    'position stays within a small margin of the boundary radius (no tunneling through the wall)',
-    Math.hypot(q.position.x, q.position.z) < 1.75 + 0.1,
-    `dist=${Math.hypot(q.position.x, q.position.z).toFixed(3)}`
-  );
 }
 
 console.log(`\n=== RESULTS: ${passed} passed, ${failures} failed ===\n`);

@@ -23,7 +23,6 @@ import {
   ALT_HOLD_PID,
   FLOOR_RESTITUTION,
   FLOOR_FRICTION,
-  CRASH_SPEED_THRESHOLD,
   BODY_RADIUS,
 } from './constants';
 
@@ -58,7 +57,6 @@ export interface QuadcopterTelemetry {
   motorThrust: number[]; // actual (lagged) per-motor thrust, N
   motorNormalized: number[]; // 0..1 for visualizing prop spin
   armed: boolean;
-  crashed: boolean;
   altitudeM: number;
   speedMs: number;
 }
@@ -90,7 +88,6 @@ function createTelemetryScratch(): QuadcopterTelemetry {
     motorThrust: [0, 0, 0, 0],
     motorNormalized: [0, 0, 0, 0],
     armed: false,
-    crashed: false,
     altitudeM: 0,
     speedMs: 0,
   };
@@ -106,7 +103,6 @@ export class QuadcopterPhysics {
   motorThrustCommand = [0, 0, 0, 0]; // N, target from mixer
 
   armed = false;
-  crashed = false;
 
   private ratePID = {
     roll: new PIDController(RATE_PID.roll),
@@ -126,21 +122,13 @@ export class QuadcopterPhysics {
     this.angularVelocity.set(0, 0, 0);
     this.motorThrustActual.fill(0);
     this.motorThrustCommand.fill(0);
-    this.crashed = false;
     this.ratePID.roll.reset();
     this.ratePID.pitch.reset();
     this.ratePID.yaw.reset();
     this.altHoldPID.reset();
   }
 
-  /** Forces the crashed/disarmed state, e.g. from a hard wall/boundary impact detected outside this class. */
-  triggerCrash(): void {
-    this.crashed = true;
-    this.armed = false;
-  }
-
   setArmed(armed: boolean): void {
-    if (armed && this.crashed) return; // must reset before re-arming from a crash
     this.armed = armed;
     if (!armed) {
       this.motorThrustCommand.fill(0);
@@ -149,12 +137,10 @@ export class QuadcopterPhysics {
 
   /** Advance the simulation by a fixed timestep dt (seconds). Call in a fixed-step loop. */
   step(dt: number, input: ControlInput, floorY: number): void {
-    if (this.crashed || !this.armed) {
-      // Motors spin down even when disarmed/crashed; disarmed also free-falls under gravity.
+    if (!this.armed) {
+      // Motors spin down while disarmed, and the drone free-falls under gravity.
       this.integrateMotorLag(dt, ZERO_THRUST);
-      if (!this.armed) {
-        this.applyFreeFall(dt, floorY);
-      }
+      this.applyFreeFall(dt, floorY);
       return;
     }
 
@@ -259,23 +245,12 @@ export class QuadcopterPhysics {
   private handleFloorCollision(floorY: number): void {
     const floorContactY = floorY + BODY_RADIUS * 0.3; // visual body sits slightly above pure point
     if (this.position.y < floorContactY) {
-      const impactSpeed = Math.max(0, -this.velocity.y);
       this.position.y = floorContactY;
       if (this.velocity.y < 0) this.velocity.y = -this.velocity.y * FLOOR_RESTITUTION;
       this.velocity.x *= FLOOR_FRICTION;
       this.velocity.z *= FLOOR_FRICTION;
       this.angularVelocity.multiplyScalar(0.5);
-
-      if (impactSpeed > CRASH_SPEED_THRESHOLD || this.isExcessivelyTilted()) {
-        this.crashed = true;
-        this.armed = false;
-      }
     }
-  }
-
-  private isExcessivelyTilted(): boolean {
-    _bodyUpWorld.copy(UP).applyQuaternion(this.quaternion);
-    return _bodyUpWorld.y < 0.35; // more than ~70 deg from vertical while touching ground
   }
 
   /**
@@ -345,7 +320,6 @@ export class QuadcopterPhysics {
       t.motorNormalized[i] = this.motorThrustActual[i] / MAX_THRUST_PER_MOTOR;
     }
     t.armed = this.armed;
-    t.crashed = this.crashed;
     t.altitudeM = this.position.y - floorY;
     t.speedMs = this.velocity.length();
     return t;

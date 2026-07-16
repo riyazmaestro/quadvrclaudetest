@@ -90,8 +90,8 @@ conservative:
   with clear space in all directions before arming.
 - A pulsing red glow appears on the in-headset HUD as the drone nears the boundary edge.
 - Squeeze both triggers at any time to instantly cut power if the drone is headed somewhere bad.
-- A hard hit against the floor or the boundary wall auto-disarms the drone ("crashed" state); tap
-  **Y** to reset it back to your feet.
+- Hitting the floor or the boundary wall just bounces the drone physically (with some restitution
+  and friction) — it stays armed and flyable. Tap **Y** any time to reset it back to your feet.
 
 ## Development
 

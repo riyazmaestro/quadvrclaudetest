@@ -73,15 +73,7 @@ export const ANGLE_P_GAIN = 8.0;
 export const MAX_CLIMB_RATE = 1.4; // m/s, indoor-safe vertical speed limit for alt-hold
 export const ALT_HOLD_PID = { kP: 3.2, kI: 1.6, kD: 0.6, iMax: MASS * GRAVITY * 0.6 };
 
-// --- Crash / collision ---
+// --- Collision ---
 export const FLOOR_RESTITUTION = 0.15; // bounce fraction on hard floor contact
 export const FLOOR_FRICTION = 0.6; // horizontal velocity damping factor on floor contact
-export const CRASH_SPEED_THRESHOLD = 3.0; // m/s impact speed that triggers auto-disarm "crashed" state
-// Wall/boundary impacts need their OWN (lower) threshold: floor crashes are typically from a
-// fall (gravity has room to build vertical speed), but a lateral hit into the arena boundary is
-// capped by how much distance is available to accelerate over inside a small living room — full
-// stick deflection from the center of a 1.75m-radius arena only reaches ~2.2-2.9 m/s by the time
-// the drone first touches the wall (measured empirically, see scripts/simTest.ts Test 15), so
-// reusing CRASH_SPEED_THRESHOLD here would almost never fire.
-export const WALL_CRASH_SPEED_THRESHOLD = 2.0; // m/s outward impact speed that crashes on a wall/boundary hit
 export const BODY_RADIUS = 0.16; // m, approx bounding sphere radius for simple collisions

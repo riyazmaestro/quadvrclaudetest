@@ -9,7 +9,7 @@ import { ControllerInput } from './input/ControllerInput';
 import { KeyboardInput } from './input/KeyboardInput';
 import type { InputSource } from './input/types';
 import { QuadcopterPhysics } from './physics/QuadcopterPhysics';
-import { FIXED_DT, BODY_RADIUS, WALL_CRASH_SPEED_THRESHOLD } from './physics/constants';
+import { FIXED_DT, BODY_RADIUS } from './physics/constants';
 import { Hud, type HudData } from './ui/Hud';
 import { MotorAudio } from './audio/MotorAudio';
 
@@ -104,7 +104,6 @@ const hudDataScratch: HudData = {
   flightMode: 'ANGLE',
   altitudeM: 0,
   speedMs: 0,
-  crashed: false,
   boundaryProximity: 0,
   flightTimeS: 0,
 };
@@ -128,8 +127,7 @@ sceneSetup.renderer.setAnimationLoop(() => {
   let substeps = 0;
   while (accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS_PER_FRAME) {
     physics.step(FIXED_DT, frameInput, 0);
-    const { impactSpeedMs } = roomBoundary.resolve(physics.position, physics.velocity, BODY_RADIUS);
-    if (impactSpeedMs > WALL_CRASH_SPEED_THRESHOLD) physics.triggerCrash();
+    roomBoundary.resolve(physics.position, physics.velocity, BODY_RADIUS);
     accumulator -= FIXED_DT;
     substeps++;
   }
@@ -146,7 +144,6 @@ sceneSetup.renderer.setAnimationLoop(() => {
   hudDataScratch.flightMode = frameInput.flightMode;
   hudDataScratch.altitudeM = telemetry.altitudeM;
   hudDataScratch.speedMs = telemetry.speedMs;
-  hudDataScratch.crashed = telemetry.crashed;
   hudDataScratch.boundaryProximity = boundaryProximity;
   hudDataScratch.flightTimeS = telemetry.armed ? (now - flightStartTime) / 1000 : 0;
   hud.update(hudDataScratch, sceneSetup.camera, frameDt);

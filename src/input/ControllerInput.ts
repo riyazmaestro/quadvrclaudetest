@@ -79,7 +79,7 @@ export class ControllerInput implements InputSource {
           throttle = throttleFromAxis(rawY);
           if (state.faceUpper && !prev.faceUpper) {
             resetRequested = true; // Y button
-            this.armed = false; // always require an explicit re-arm after a reset, e.g. post-crash
+            this.armed = false; // always require an explicit re-arm after a reset
           }
           leftTriggerHeld = state.trigger;
         } else {

@@ -24,7 +24,6 @@ interface QuadDebug {
     position: { x: number; y: number; z: number };
     velocity: { x: number; y: number; z: number };
     armed: boolean;
-    crashed: boolean;
     altitudeM: number;
     speedMs: number;
   };
@@ -99,7 +98,7 @@ async function main(): Promise<void> {
       !!afterClimb && Number.isFinite(afterClimb.telemetry.position.x) && Number.isFinite(afterClimb.telemetry.velocity.y),
       JSON.stringify(afterClimb?.telemetry.position)
     );
-    check('still armed and not crashed mid-flight', afterClimb?.telemetry.armed === true && afterClimb?.telemetry.crashed === false);
+    check('still armed mid-flight', afterClimb?.telemetry.armed === true);
 
     console.log('\n=== Forward pitch (W) for 1s ===');
     const beforePitch = await readDebug(page);

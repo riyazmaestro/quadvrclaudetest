@@ -5,7 +5,6 @@ export interface HudData {
   flightMode: 'ACRO' | 'ANGLE';
   altitudeM: number;
   speedMs: number;
-  crashed: boolean;
   boundaryProximity: number; // 0 = safe, 1 = at/past the wall boundary
   flightTimeS: number; // seconds since last arm
 }
@@ -75,7 +74,6 @@ export class Hud {
       flightMode: 'ACRO',
       altitudeM: 0,
       speedMs: 0,
-      crashed: false,
       boundaryProximity: 0,
       flightTimeS: 0,
     });
@@ -148,29 +146,6 @@ export class Hud {
     ctx.textAlign = 'center';
     ctx.fillText(timerText, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 52);
     ctx.textAlign = 'left';
-
-    if (data.crashed) {
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-      const boxW = 480;
-      const boxH = 130;
-      const boxX = (CANVAS_WIDTH - boxW) / 2;
-      const boxY = (CANVAS_HEIGHT - boxH) / 2;
-      ctx.fillStyle = 'rgba(20, 4, 4, 0.8)';
-      ctx.strokeStyle = 'rgba(255, 90, 70, 0.7)';
-      ctx.lineWidth = 2;
-      roundRect(ctx, boxX, boxY, boxW, boxH, 14);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = '#ff5a46';
-      ctx.font = '800 34px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('CRASHED', CANVAS_WIDTH / 2, boxY + 52);
-      ctx.fillStyle = '#ffe0da';
-      ctx.font = '500 18px sans-serif';
-      ctx.fillText('Reset to fly again', CANVAS_WIDTH / 2, boxY + 90);
-      ctx.textAlign = 'left';
-    }
   }
 
   private drawPlate(x: number, y: number, w: number, h: number): void {

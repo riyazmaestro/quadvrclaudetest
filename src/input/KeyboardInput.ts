@@ -50,7 +50,7 @@ export class KeyboardInput implements InputSource {
     if (space && !this.prevSpace) this.armed = !this.armed;
     if (m && !this.prevM) this.flightMode = this.flightMode === 'ANGLE' ? 'ACRO' : 'ANGLE';
     const resetRequested = r && !this.prevR;
-    if (resetRequested) this.armed = false; // always require an explicit re-arm after a reset, e.g. post-crash
+    if (resetRequested) this.armed = false; // always require an explicit re-arm after a reset
     const killSwitch = this.keys.has('KeyX');
     if (killSwitch) this.armed = false;
 
