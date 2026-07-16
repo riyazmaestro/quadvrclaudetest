@@ -9,6 +9,7 @@ import {
 } from 'three';
 import { MOTOR_LAYOUT } from '../physics/Mixer';
 import { ARM_LENGTH } from '../physics/constants';
+import type { FlightModel } from './FlightModel';
 
 const MAX_VISUAL_SPIN_RAD_S = 90; // purely cosmetic prop spin rate at full thrust, not real RPM
 const IDLE_SPIN_RAD_S = 12; // gentle spin while armed but at low/zero thrust, reads as "alive"
@@ -22,17 +23,17 @@ const DUCT_OUTER_RADIUS = 0.062;
 const DUCT_TUBE_RADIUS = 0.011;
 const PROP_BLADE_LENGTH = 0.1; // shorter than the old open-frame prop so it sits inside the duct
 
-export class DroneModel {
+export class DroneModel implements FlightModel {
   readonly root = new Group();
   private props: Object3D[] = [];
   private propAngle = [0, 0, 0, 0];
   private bumpEnvelope = 0; // 0 = resting size; decays back down from a wall-impact pulse
 
   constructor() {
-    // Tiny-whoop style: a small bright frame almost entirely hidden under full circular prop
+    // Tiny-whoop style: a small matte-black frame almost entirely hidden under full circular prop
     // ducts, an FPV camera pod up front (no canopy dome — plain frame + lens), and a whip antenna
     // out the back.
-    const bodyMat = new MeshStandardMaterial({ color: 0xf2f5f7, roughness: 0.35, metalness: 0.15 });
+    const bodyMat = new MeshStandardMaterial({ color: 0x14171c, roughness: 0.4, metalness: 0.25 });
     const body = new Mesh(new BoxGeometry(0.07, 0.03, 0.09), bodyMat);
     this.root.add(body);
 
@@ -42,7 +43,7 @@ export class DroneModel {
     cameraPod.rotation.x = Math.PI / 2.4;
     this.root.add(cameraPod);
 
-    const antennaMat = new MeshStandardMaterial({ color: 0xb7c2cc, roughness: 0.5 });
+    const antennaMat = new MeshStandardMaterial({ color: 0x1c2127, roughness: 0.5 });
     const antenna = new Mesh(new CylinderGeometry(0.0015, 0.0015, 0.09, 6), antennaMat);
     antenna.position.set(0.015, 0.045, 0.05);
     antenna.rotation.x = -Math.PI / 7;
@@ -66,10 +67,10 @@ export class DroneModel {
     tailFlag.position.set(0, 0.03, 0.175);
     this.root.add(tailFlag);
 
-    const armMat = new MeshStandardMaterial({ color: 0xdfe6ec, roughness: 0.5 });
-    const hubMat = new MeshStandardMaterial({ color: 0xc7d0d9, roughness: 0.3, metalness: 0.4 });
+    const armMat = new MeshStandardMaterial({ color: 0x15181d, roughness: 0.5 });
+    const hubMat = new MeshStandardMaterial({ color: 0x0e1114, roughness: 0.3, metalness: 0.4 });
     const propMat = new MeshStandardMaterial({ color: 0x0d1116, roughness: 0.25, metalness: 0.2 });
-    const ductMat = new MeshStandardMaterial({ color: 0xe3e8ec, roughness: 0.45, metalness: 0.15 });
+    const ductMat = new MeshStandardMaterial({ color: 0x1a1e24, roughness: 0.45, metalness: 0.15 });
 
     for (const motor of MOTOR_LAYOUT) {
       // ARM_LENGTH (center-to-motor distance) applies to every motor identically only because

@@ -9,7 +9,7 @@ import { shapeAxis, throttleFromAxis } from './stickShaping';
 // [3] thumbstick click, [4] A/X (lower face button), [5] B/Y (upper face button).
 //
 // In-flight bindings: right trigger = engage/disengage (toggle), A = reset to room center,
-// X = redo room boundary, Y = ACRO/ANGLE toggle, B = ceiling boundary on/off, both grips = kill switch.
+// X = switch drone model, Y = ACRO/ANGLE toggle, B = ceiling boundary on/off, both grips = kill switch.
 const AXIS_X = 2;
 const AXIS_Y = 3;
 const BTN_TRIGGER = 0;
@@ -56,7 +56,7 @@ export class ControllerInput implements InputSource {
     let pitch = 0;
     let roll = 0;
     let resetRequested = false;
-    let redoBoundaryRequested = false;
+    let modelSwitchRequested = false;
     let ceilingToggleRequested = false;
     let leftGripHeld = false;
     let rightGripHeld = false;
@@ -78,7 +78,7 @@ export class ControllerInput implements InputSource {
           yaw = shapeAxis(rawX);
           throttle = throttleFromAxis(rawY);
           if (state.faceUpper && !prev.faceUpper) this.flightMode = this.flightMode === 'ANGLE' ? 'ACRO' : 'ANGLE'; // Y
-          if (state.faceLower && !prev.faceLower) redoBoundaryRequested = true; // X
+          if (state.faceLower && !prev.faceLower) modelSwitchRequested = true; // X
           leftGripHeld = state.grip;
         } else {
           const rawX = gamepad.axes[AXIS_X] ?? 0;
@@ -113,7 +113,7 @@ export class ControllerInput implements InputSource {
       armed: this.armed,
       flightMode: this.flightMode,
       resetRequested,
-      redoBoundaryRequested,
+      modelSwitchRequested,
       ceilingToggleRequested,
       killSwitch,
     };

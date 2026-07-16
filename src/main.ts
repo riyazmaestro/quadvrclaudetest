@@ -3,6 +3,8 @@ import { Vector3 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { SceneSetup } from './render/SceneSetup';
 import { DroneModel } from './render/DroneModel';
+import { HelicopterModel } from './render/HelicopterModel';
+import { disposeFlightModel, type FlightModel } from './render/FlightModel';
 import { XRSessionManager, type BoundaryPoint } from './xr/XRSessionManager';
 import { RoomBoundary } from './xr/RoomBoundary';
 import { ControllerInput } from './input/ControllerInput';
@@ -22,8 +24,23 @@ const MIN_CALIBRATION_POINTS = 3;
 const CLOSE_LOOP_DISTANCE_M = 0.4;
 
 const sceneSetup = new SceneSetup();
-const drone = new DroneModel();
+
+// Selectable visual models for the same underlying quadcopter physics — press X in flight to
+// cycle. Factories (not instances) so switching always builds a fresh model rather than juggling
+// pre-built, possibly-stale instances.
+const FLIGHT_MODEL_FACTORIES: Array<() => FlightModel> = [() => new DroneModel(), () => new HelicopterModel()];
+let modelIndex = 0;
+let drone: FlightModel = FLIGHT_MODEL_FACTORIES[modelIndex]();
 sceneSetup.scene.add(drone.root);
+
+function switchDroneModel(): void {
+  sceneSetup.scene.remove(drone.root);
+  disposeFlightModel(drone.root);
+  modelIndex = (modelIndex + 1) % FLIGHT_MODEL_FACTORIES.length;
+  drone = FLIGHT_MODEL_FACTORIES[modelIndex]();
+  sceneSetup.scene.add(drone.root);
+}
+
 const physics = new QuadcopterPhysics();
 const roomBoundary = new RoomBoundary();
 sceneSetup.setBoundaryVisual(roomBoundary.getPolygon());
@@ -60,7 +77,7 @@ type Phase = 'landing' | 'calibrating' | 'flying';
 let phase: Phase = 'landing';
 let calibrationPoints: BoundaryPoint[] = [];
 
-/** (Re)enters the calibration walk — used both for the first walk on session start and for a mid-session redo. */
+/** Enters the calibration walk on session start. Once a boundary is created it can't be redone mid-session. */
 function enterCalibrating(): void {
   controllerInput.forceDisarm();
   phase = 'calibrating';
@@ -195,67 +212,65 @@ sceneSetup.renderer.setAnimationLoop((_time, frame) => {
     const activeInput: InputSource = xrSessionManager.isPresenting ? controllerInput : keyboardInput;
     const frameInput = activeInput.poll();
 
-    if (frameInput.redoBoundaryRequested) {
-      enterCalibrating();
-    } else {
-      physics.setArmed(frameInput.armed);
-      if (frameInput.resetRequested) {
-        const resetPos = roomBoundary.hasPolygon()
-          ? new Vector3(roomBoundary.getCentroid().x, 1, roomBoundary.getCentroid().z)
-          : SPAWN_POSITION.clone();
-        physics.reset(resetPos);
+    if (frameInput.modelSwitchRequested) switchDroneModel();
+
+    physics.setArmed(frameInput.armed);
+    if (frameInput.resetRequested) {
+      const resetPos = roomBoundary.hasPolygon()
+        ? new Vector3(roomBoundary.getCentroid().x, 1, roomBoundary.getCentroid().z)
+        : SPAWN_POSITION.clone();
+      physics.reset(resetPos);
+    }
+    if (frameInput.ceilingToggleRequested) {
+      physics.ceilingEnabled = !physics.ceilingEnabled;
+      if (physics.ceilingEnabled && roomBoundary.hasPolygon()) {
+        sceneSetup.setCeilingVisual(roomBoundary.getPolygon(), CEILING_HEIGHT_M);
+      } else {
+        sceneSetup.hideCeilingVisual();
       }
-      if (frameInput.ceilingToggleRequested) {
-        physics.ceilingEnabled = !physics.ceilingEnabled;
-        if (physics.ceilingEnabled && roomBoundary.hasPolygon()) {
-          sceneSetup.setCeilingVisual(roomBoundary.getPolygon(), CEILING_HEIGHT_M);
-        } else {
-          sceneSetup.hideCeilingVisual();
-        }
+    }
+    if (physics.armed && !wasArmed) flightStartTime = now; // rising edge only, so a mid-flight disarm+rearm restarts the timer
+    wasArmed = physics.armed;
+
+    accumulator = Math.min(accumulator + frameDt, FIXED_DT * MAX_SUBSTEPS_PER_FRAME);
+    let substeps = 0;
+    let wallImpactSpeedMs = 0;
+    while (accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS_PER_FRAME) {
+      physics.step(FIXED_DT, frameInput, 0);
+      if (roomBoundary.hasPolygon()) {
+        const { impactSpeedMs } = roomBoundary.resolve(physics.position, physics.velocity, BODY_RADIUS);
+        if (impactSpeedMs > wallImpactSpeedMs) wallImpactSpeedMs = impactSpeedMs;
       }
-      if (physics.armed && !wasArmed) flightStartTime = now; // rising edge only, so a mid-flight disarm+rearm restarts the timer
-      wasArmed = physics.armed;
+      accumulator -= FIXED_DT;
+      substeps++;
+    }
+    if (wallImpactSpeedMs > 0) drone.triggerBump(wallImpactSpeedMs);
 
-      accumulator = Math.min(accumulator + frameDt, FIXED_DT * MAX_SUBSTEPS_PER_FRAME);
-      let substeps = 0;
-      let wallImpactSpeedMs = 0;
-      while (accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS_PER_FRAME) {
-        physics.step(FIXED_DT, frameInput, 0);
-        if (roomBoundary.hasPolygon()) {
-          const { impactSpeedMs } = roomBoundary.resolve(physics.position, physics.velocity, BODY_RADIUS);
-          if (impactSpeedMs > wallImpactSpeedMs) wallImpactSpeedMs = impactSpeedMs;
-        }
-        accumulator -= FIXED_DT;
-        substeps++;
-      }
-      if (wallImpactSpeedMs > 0) drone.triggerBump(wallImpactSpeedMs);
+    const telemetry = physics.getTelemetry(0);
+    drone.root.position.copy(telemetry.position);
+    drone.root.quaternion.copy(telemetry.quaternion);
+    drone.update(frameDt, telemetry.motorNormalized, telemetry.armed);
 
-      const telemetry = physics.getTelemetry(0);
-      drone.root.position.copy(telemetry.position);
-      drone.root.quaternion.copy(telemetry.quaternion);
-      drone.update(frameDt, telemetry.motorNormalized, telemetry.armed);
+    const boundaryProximity = roomBoundary.hasPolygon() ? roomBoundary.proximity(telemetry.position.x, telemetry.position.z, BODY_RADIUS) : 0;
+    motorAudio.update(telemetry.motorNormalized, telemetry.armed);
 
-      const boundaryProximity = roomBoundary.hasPolygon() ? roomBoundary.proximity(telemetry.position.x, telemetry.position.z, BODY_RADIUS) : 0;
-      motorAudio.update(telemetry.motorNormalized, telemetry.armed);
+    hudDataScratch.armed = telemetry.armed;
+    hudDataScratch.flightMode = frameInput.flightMode;
+    hudDataScratch.altitudeM = telemetry.altitudeM;
+    hudDataScratch.speedMs = telemetry.speedMs;
+    hudDataScratch.boundaryProximity = boundaryProximity;
+    hudDataScratch.flightTimeS = telemetry.armed ? (now - flightStartTime) / 1000 : 0;
+    hudDataScratch.ceilingEnabled = physics.ceilingEnabled;
+    hud.update(hudDataScratch, sceneSetup.camera, frameDt);
 
-      hudDataScratch.armed = telemetry.armed;
-      hudDataScratch.flightMode = frameInput.flightMode;
-      hudDataScratch.altitudeM = telemetry.altitudeM;
-      hudDataScratch.speedMs = telemetry.speedMs;
-      hudDataScratch.boundaryProximity = boundaryProximity;
-      hudDataScratch.flightTimeS = telemetry.armed ? (now - flightStartTime) / 1000 : 0;
-      hudDataScratch.ceilingEnabled = physics.ceilingEnabled;
-      hud.update(hudDataScratch, sceneSetup.camera, frameDt);
-
-      if (import.meta.env.DEV) {
-        // Dev-only hook: lets a headless smoke test (see scripts/smokeTest.ts) assert on real
-        // simulation state without a headset. Dead-code-eliminated from production builds.
-        (window as unknown as { __quadDebug: unknown }).__quadDebug = {
-          telemetry,
-          frameInput,
-          isPresenting: xrSessionManager.isPresenting,
-        };
-      }
+    if (import.meta.env.DEV) {
+      // Dev-only hook: lets a headless smoke test (see scripts/smokeTest.ts) assert on real
+      // simulation state without a headset. Dead-code-eliminated from production builds.
+      (window as unknown as { __quadDebug: unknown }).__quadDebug = {
+        telemetry,
+        frameInput,
+        isPresenting: xrSessionManager.isPresenting,
+      };
     }
   }
 

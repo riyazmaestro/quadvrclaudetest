@@ -16,6 +16,7 @@ export class KeyboardInput implements InputSource {
   private prevM = false;
   private prevR = false;
   private prevC = false;
+  private prevN = false;
 
   constructor(target: EventTarget = window) {
     target.addEventListener('keydown', this.handleKeyDown as EventListener);
@@ -48,12 +49,14 @@ export class KeyboardInput implements InputSource {
     const m = this.keys.has('KeyM');
     const r = this.keys.has('KeyR');
     const c = this.keys.has('KeyC');
+    const n = this.keys.has('KeyN');
 
     if (space && !this.prevSpace) this.armed = !this.armed;
     if (m && !this.prevM) this.flightMode = this.flightMode === 'ANGLE' ? 'ACRO' : 'ANGLE';
     const resetRequested = r && !this.prevR;
     if (resetRequested) this.armed = false; // always require an explicit re-arm after a reset
     const ceilingToggleRequested = c && !this.prevC;
+    const modelSwitchRequested = n && !this.prevN;
     const killSwitch = this.keys.has('KeyX');
     if (killSwitch) this.armed = false;
 
@@ -61,8 +64,8 @@ export class KeyboardInput implements InputSource {
     this.prevM = m;
     this.prevR = r;
     this.prevC = c;
+    this.prevN = n;
 
-    // No desktop key drives redoBoundaryRequested — there's no calibration concept without a real headset walk.
     return {
       throttle,
       pitch,
@@ -71,7 +74,7 @@ export class KeyboardInput implements InputSource {
       armed: this.armed,
       flightMode: this.flightMode,
       resetRequested,
-      redoBoundaryRequested: false,
+      modelSwitchRequested,
       ceilingToggleRequested,
       killSwitch,
     };

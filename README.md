@@ -71,7 +71,7 @@ gets a chance to run.
 | **Right stick**, horizontal | Roll (tilt left/right to strafe left/right) |
 | **Right trigger** | Engage / disengage the motors |
 | **A** (right controller) | Reset the drone to the center of the room (always leaves it disarmed) |
-| **X** (left controller) | Re-walk the room boundary from scratch |
+| **X** (left controller) | Switch to the next drone/aircraft model |
 | **Y** (left controller) | Toggle ACRO ↔ ANGLE flight mode |
 | **B** (right controller) | Toggle the 9-foot ceiling boundary on/off |
 | **Both grips together** | Emergency kill switch — instantly cuts power, from any state |
@@ -96,7 +96,8 @@ conservative:
   `CONTEXT.md` for details). Instead, right after entering AR you walk the edge of your own flying
   space and mark it yourself (right trigger at each corner, walk back to the start to close the
   loop) — **that's the only source of the boundary; there is no fallback circle.** Flight can't
-  start until you've marked at least 3 corners.
+  start until you've marked at least 3 corners. **The boundary can't be re-walked once it's
+  created** — if you need a different shape, reload the page and calibrate again.
 - A fixed **9-foot ceiling boundary** (measured from your marked room's floor) is also enforced by
   default, drawn as the same cyan outline up at ceiling height — press **B** to toggle it off if
   your space needs otherwise.
@@ -104,7 +105,13 @@ conservative:
 - Squeeze both grips at any time to instantly cut power if the drone is headed somewhere bad.
 - Hitting the floor or the boundary wall just bounces the drone physically (with some restitution
   and friction) — it stays armed and flyable. Press **A** any time to reset it back to the center
-  of your marked room, or **X** to re-walk the boundary from scratch.
+  of your marked room.
+
+## Drone models
+
+Press **X** to cycle between the aircraft models — a black tiny-whoop-style quadcopter (default)
+and a toy-helicopter model (main + tail rotor, skid landing gear). Both are purely cosmetic skins
+over the same quadcopter flight physics; switching doesn't change how it flies.
 
 ## Development
 

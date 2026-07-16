@@ -3,8 +3,8 @@ import type { ControlInput } from '../physics/QuadcopterPhysics';
 export interface FrameInput extends ControlInput {
   /** Edge-triggered: true for exactly one poll() after the reset button/key is pressed. */
   resetRequested: boolean;
-  /** Edge-triggered: true for exactly one poll() after the redo-boundary button/key is pressed. */
-  redoBoundaryRequested: boolean;
+  /** Edge-triggered: true for exactly one poll() after the model-switch button/key is pressed. */
+  modelSwitchRequested: boolean;
   /** Edge-triggered: true for exactly one poll() after the ceiling-toggle button/key is pressed. */
   ceilingToggleRequested: boolean;
   /** Level-triggered safety override: both grips held -> caller must force-disarm immediately. */
