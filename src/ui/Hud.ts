@@ -15,10 +15,13 @@ const CANVAS_WIDTH = 1024;
 const CANVAS_HEIGHT = 512;
 const REDRAW_INTERVAL_S = 1 / 15;
 
-// Distance/offset the panel sits at relative to the camera, in meters, in the
-// camera's local space (+x right, +y up, -z forward).
-const PANEL_OFFSET = new THREE.Vector3(0, -0.16, -0.6);
-const PANEL_WIDTH_M = 0.52;
+// Distance/offset the panel sits at relative to the camera, in meters, in the camera's local
+// space (+x right, +y up, -z forward). Tuned so the panel subtends ~27deg of horizontal FOV
+// (was ~47deg at the first pass's 0.52m/0.6m — nearly half a headset's view, which fails the
+// "modest, don't block the room" brief) and sits low enough to read as a glanced-at dashboard
+// rather than a screen sitting in the middle of where the user is looking at their drone.
+const PANEL_OFFSET = new THREE.Vector3(0, -0.22, -0.7);
+const PANEL_WIDTH_M = 0.34;
 const PANEL_HEIGHT_M = (PANEL_WIDTH_M * CANVAS_HEIGHT) / CANVAS_WIDTH;
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {

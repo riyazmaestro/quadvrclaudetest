@@ -55,10 +55,13 @@ async function main(): Promise<void> {
   try {
     server = await createServer({ server: { port: 5183, strictPort: true }, logLevel: 'error' });
     await server.listen();
-    const url = `http://localhost:5183/`;
+    // The project's vite.config.ts always serves HTTPS (self-signed cert) since WebXR requires a
+    // secure context on a real device — this dev server inherits that config, so Playwright must
+    // be told to accept the untrusted cert or every request will fail.
+    const url = `https://localhost:5183/`;
 
     const browser = await chromium.launch();
-    const page = await browser.newPage();
+    const page = await browser.newPage({ ignoreHTTPSErrors: true });
     page.on('console', (msg: ConsoleMessage) => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });

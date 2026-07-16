@@ -77,8 +77,14 @@ export class RoomBoundary {
     this.effectiveFallbackRadius = radiusM;
   }
 
-  hasGuardianPolygon(): boolean {
-    return this.polygon !== null;
+  /**
+   * What's actually in effect right now, for drawing the boundary line — deliberately NOT the
+   * same as the raw `XRSessionManager.boundaryPolygon`, since that's pre-sanity-check: if this
+   * class rejected it as an implausible guardian reading, the visual must show the real (circle)
+   * fallback it's actually colliding against, not a shape nothing is enforcing anymore.
+   */
+  getVisualBoundary(): { polygon: BoundaryPoint[] | null; radius: number; isGuardianPolygon: boolean } {
+    return { polygon: this.polygon, radius: this.effectiveFallbackRadius, isGuardianPolygon: this.polygon !== null };
   }
 
   /**

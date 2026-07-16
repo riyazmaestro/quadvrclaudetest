@@ -20,11 +20,10 @@ const SPAWN_POSITION = new Vector3(0, 1, -1);
 const sceneSetup = new SceneSetup();
 const drone = new DroneModel();
 sceneSetup.scene.add(drone.root);
-sceneSetup.setBoundaryVisual(null, FALLBACK_ARENA_RADIUS_M);
-
 const physics = new QuadcopterPhysics();
 const roomBoundary = new RoomBoundary();
 roomBoundary.setFallbackRadius(FALLBACK_ARENA_RADIUS_M);
+sceneSetup.setBoundaryVisual(roomBoundary.getVisualBoundary());
 
 const controllerInput = new ControllerInput();
 const keyboardInput = new KeyboardInput();
@@ -54,7 +53,7 @@ const xrSessionManager = new XRSessionManager(sceneSetup.renderer, hudRoot, {
     landing.style.display = 'none';
     orbitControls.enabled = false;
     roomBoundary.setPolygon(xrSessionManager.boundaryPolygon);
-    sceneSetup.setBoundaryVisual(xrSessionManager.boundaryPolygon, FALLBACK_ARENA_RADIUS_M);
+    sceneSetup.setBoundaryVisual(roomBoundary.getVisualBoundary());
     physics.reset(SPAWN_POSITION.clone());
     flightStartTime = performance.now();
     motorAudio.start();
@@ -64,6 +63,12 @@ const xrSessionManager = new XRSessionManager(sceneSetup.renderer, hudRoot, {
     landing.style.display = '';
     orbitControls.enabled = true;
     motorAudio.stop();
+  },
+  onVisibilityChange: (visibilityState) => {
+    // If the user lifts/removes the headset mid-flight they can no longer see the drone (or the
+    // boundary warning), so treat "app hidden" like a safety pause: force a disarm rather than
+    // let it keep flying unattended. They'll need to grip-arm again once visible.
+    if (visibilityState !== 'visible') controllerInput.forceDisarm();
   },
 });
 

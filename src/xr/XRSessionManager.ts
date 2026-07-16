@@ -16,6 +16,8 @@ export interface BoundaryPoint {
 export interface XRSessionCallbacks {
   onSessionStart?: (session: XRSession) => void;
   onSessionEnd?: () => void;
+  /** Fires when the headset hides the app (user lifted/removed the headset, or the system UI took over). */
+  onVisibilityChange?: (visibilityState: XRVisibilityState) => void;
 }
 
 export class XRSessionManager {
@@ -54,6 +56,7 @@ export class XRSessionManager {
     });
 
     session.addEventListener('end', this.handleSessionEnd);
+    session.addEventListener('visibilitychange', () => this.callbacks.onVisibilityChange?.(session.visibilityState));
 
     try {
       await this.tryFetchBoundary(session);

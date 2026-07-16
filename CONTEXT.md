@@ -165,11 +165,49 @@ scripts/smokeTest.ts  Headless-Chromium desktop-preview smoke test via Playwrigh
   fix) — such cases belong in `scripts/simTest.ts`'s deterministic fixed-step loop instead, not
   `scripts/smokeTest.ts`.
 
+## Progress log (continued)
+- Committed the full-app milestone (`d361200`) after the correctness review fixes above.
+- Added real HTTPS to the dev server: `vite.config.ts` with `@vitejs/plugin-basic-ssl` +
+  `server.host: true` (WebXR requires a secure context; a Quest can't open a plain `http://` LAN
+  page and start an AR session). Updated `scripts/smokeTest.ts` to hit `https://` with
+  `ignoreHTTPSErrors` since it boots the same configured dev server. Verified end-to-end: dev
+  server prints a real LAN `Network:` URL, smoke test passes against it.
+- Wrote `README.md`: setup/run instructions, the actual controls table, a safety section, dev
+  scripts, and a troubleshooting section — including calling out Windows Firewall as the most
+  likely reason a Quest can't reach the dev server over LAN (very much worth stating explicitly,
+  it's the kind of thing that silently blocks the whole "fly it on Quest" flow with no error
+  message on either device).
+- Final iteration pass caught two more real things while giving the whole tree a fresh read:
+  1. Two methods were written but never called anywhere (`ControllerInput.forceDisarm()`,
+     `RoomBoundary.hasGuardianPolygon()`) — dead code, but each pointed at a real missing feature
+     rather than being pure cruft. **Wired both in**: `XRSessionManager` now listens for the
+     WebXR `visibilitychange` event and calls a new `onVisibilityChange` callback; `main.ts` uses
+     it to force-disarm when the user lifts/removes the headset mid-flight (they can't see the
+     drone or the boundary warning at that point, so treat it as a safety pause). Replaced
+     `hasGuardianPolygon()` with a richer `getVisualBoundary()` that also fixed a real
+     visual/physics mismatch (next item).
+  2. The boundary line drawn in the scene was built from the **raw, pre-sanity-check**
+     `xrSessionManager.boundaryPolygon`, not what `RoomBoundary` actually decided to collide
+     against after its plausibility filter — so if a polygon got rejected as an implausible
+     guardian reading, the drawn line could show a shape nothing was actually enforcing anymore.
+     **Fixed**: `RoomBoundary.getVisualBoundary()` returns what's actually in effect (polygon or
+     effective fallback radius) plus an `isGuardianPolygon` flag; `SceneSetup.setBoundaryVisual()`
+     now takes that directly and colors the line cyan (real guardian data) vs. amber (safe
+     default circle) so it's visually honest about which one the user is looking at.
+  3. HUD panel was re-measured: at its original 0.52m width / 0.6m distance it subtended ~47deg
+     of horizontal FOV — nearly half a headset's view, contradicting the "modest, corner HUD,
+     don't block the room" brief the subagent was given. Shrunk to 0.34m width / 0.7m distance
+     (~27deg) and moved lower, so it reads as a glanced-at dashboard instead of a screen sitting
+     over the drone.
+- Full regression after all of the above: `tsc --noEmit` clean, 34/34 physics tests, full smoke
+  test (now over HTTPS), production build all pass.
+- Dispatched a second independent review subagent — reuse/simplification/efficiency lens this
+  time (the first pass was correctness-only) — running in the background; see next entry once it
+  reports back and any findings are triaged.
+
 ## Next steps (keep this section current)
-- [ ] Write README.md with Quest LAN/HTTPS deployment instructions + controls diagram
-- [ ] Consider `vite-plugin-basic-ssl` (or mkcert) dev-server HTTPS so the README's "open on
-      Quest over LAN" instructions actually work (WebXR requires a secure context)
-- [ ] Final iteration pass: re-read all source once more end-to-end for anything the review pass
-      wasn't scoped to catch (naming, dead code, small polish), then final full regression
-      (`npm run test:physics && npm run test:smoke && npm run build`) and commit
-- [ ] Git commit this milestone (physics+review-fixes) before starting the README
+- [ ] Read back the simplification/efficiency review subagent's findings once it completes;
+      triage and apply anything worth fixing, same as the correctness pass
+- [ ] Final full regression + commit after that triage
+- [ ] Optional stretch, only if time remains: try `session.updateTargetFrameRate()` for
+      90/120Hz on supported headsets (research pass flagged this as available and cheap)
