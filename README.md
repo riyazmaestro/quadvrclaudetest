@@ -39,6 +39,26 @@ computer's LAN IP, not `localhost`). Then:
 If the Quest can't reach the Network URL at all (page just times out), see
 [Troubleshooting](#troubleshooting) — it's almost always the host computer's firewall.
 
+## Playing over the internet (GitHub Pages)
+
+You don't need this computer running once the site is deployed — a `git push` to `master`
+auto-builds and publishes it via the included GitHub Actions workflow
+(`.github/workflows/deploy-pages.yml`).
+
+**One-time setup:** in the GitHub repo, go to **Settings → Pages → Build and deployment → Source**
+and select **GitHub Actions** (it's not enabled by default — just having the workflow file present
+isn't enough). Then push to `master`; the "Deploy to GitHub Pages" workflow run shows the live URL
+when it finishes (**Actions** tab), which will be `https://<your-github-username>.github.io/quadvrclaudetest/`.
+
+Open that URL directly in the Quest Browser — GitHub Pages is already HTTPS, so no
+certificate-warning step like the LAN dev server has.
+
+**Do not** open `index.html` (or anything in `dist/`) directly as a local `file://` page — WebXR
+only works in a secure context (`https://` or `localhost`), and the app's module script won't even
+load under `file://`. This is also why opening the raw project `index.html` looks identical and
+equally broken in a normal desktop browser (stuck on "Checking WebXR support…"): the page never
+gets a chance to run.
+
 ## Controls (Mode 2 RC layout)
 
 | Input | Action |
