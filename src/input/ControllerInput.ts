@@ -21,19 +21,26 @@ interface HandButtonState {
   faceUpper: boolean;
 }
 
-const EMPTY_HAND_STATE: HandButtonState = { trigger: false, grip: false, faceLower: false, faceUpper: false };
+function freshHandState(): HandButtonState {
+  return { trigger: false, grip: false, faceLower: false, faceUpper: false };
+}
 
 export class ControllerInput implements InputSource {
   private session: XRSession | null = null;
-  private prevLeft: HandButtonState = { ...EMPTY_HAND_STATE };
-  private prevRight: HandButtonState = { ...EMPTY_HAND_STATE };
   private armed = false;
   private flightMode: FlightMode = 'ANGLE';
 
+  // Persistent scratch objects (per-hand "this frame" / "last frame" button state), reused every
+  // poll() rather than allocated fresh, since this runs every XR animation frame.
+  private curLeft: HandButtonState = freshHandState();
+  private curRight: HandButtonState = freshHandState();
+  private prevLeft: HandButtonState = freshHandState();
+  private prevRight: HandButtonState = freshHandState();
+
   setSession(session: XRSession | null): void {
     this.session = session;
-    this.prevLeft = { ...EMPTY_HAND_STATE };
-    this.prevRight = { ...EMPTY_HAND_STATE };
+    resetHandState(this.prevLeft);
+    resetHandState(this.prevRight);
   }
 
   forceDisarm(): void {
@@ -55,15 +62,17 @@ export class ControllerInput implements InputSource {
         const gamepad = source.gamepad;
         if (!gamepad || (source.handedness !== 'left' && source.handedness !== 'right')) continue;
 
-        const state = this.readButtons(gamepad);
-        const prev = source.handedness === 'left' ? this.prevLeft : this.prevRight;
+        const isLeft = source.handedness === 'left';
+        const state = isLeft ? this.curLeft : this.curRight;
+        const prev = isLeft ? this.prevLeft : this.prevRight;
+        readButtonsInto(gamepad, state);
 
         // Accumulated across both hands and applied once after the loop (see below) rather than
         // toggling `armed` inline here: if both grips happen to edge-trigger in the same frame,
         // toggling per-hand would flip `armed` twice and cancel out to a no-op.
         if (state.grip && !prev.grip) gripJustPressed = true;
 
-        if (source.handedness === 'left') {
+        if (isLeft) {
           const rawX = gamepad.axes[AXIS_X] ?? 0;
           const rawY = gamepad.axes[AXIS_Y] ?? 0;
           yaw = shapeAxis(rawX);
@@ -73,7 +82,6 @@ export class ControllerInput implements InputSource {
             this.armed = false; // always require an explicit re-arm after a reset, e.g. post-crash
           }
           leftTriggerHeld = state.trigger;
-          this.prevLeft = state;
         } else {
           const rawX = gamepad.axes[AXIS_X] ?? 0;
           const rawY = gamepad.axes[AXIS_Y] ?? 0;
@@ -81,8 +89,9 @@ export class ControllerInput implements InputSource {
           pitch = -shapeAxis(rawY);
           if (state.faceLower && !prev.faceLower) this.flightMode = this.flightMode === 'ANGLE' ? 'ACRO' : 'ANGLE';
           rightTriggerHeld = state.trigger;
-          this.prevRight = state;
         }
+
+        copyHandState(state, prev);
       }
     }
 
@@ -102,13 +111,25 @@ export class ControllerInput implements InputSource {
       killSwitch,
     };
   }
+}
 
-  private readButtons(gamepad: Gamepad): HandButtonState {
-    return {
-      trigger: gamepad.buttons[BTN_TRIGGER]?.pressed ?? false,
-      grip: gamepad.buttons[BTN_GRIP]?.pressed ?? false,
-      faceLower: gamepad.buttons[BTN_FACE_LOWER]?.pressed ?? false,
-      faceUpper: gamepad.buttons[BTN_FACE_UPPER]?.pressed ?? false,
-    };
-  }
+function readButtonsInto(gamepad: Gamepad, out: HandButtonState): void {
+  out.trigger = gamepad.buttons[BTN_TRIGGER]?.pressed ?? false;
+  out.grip = gamepad.buttons[BTN_GRIP]?.pressed ?? false;
+  out.faceLower = gamepad.buttons[BTN_FACE_LOWER]?.pressed ?? false;
+  out.faceUpper = gamepad.buttons[BTN_FACE_UPPER]?.pressed ?? false;
+}
+
+function copyHandState(src: HandButtonState, dst: HandButtonState): void {
+  dst.trigger = src.trigger;
+  dst.grip = src.grip;
+  dst.faceLower = src.faceLower;
+  dst.faceUpper = src.faceUpper;
+}
+
+function resetHandState(state: HandButtonState): void {
+  state.trigger = false;
+  state.grip = false;
+  state.faceLower = false;
+  state.faceUpper = false;
 }

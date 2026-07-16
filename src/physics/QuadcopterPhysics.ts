@@ -48,6 +48,8 @@ export interface ControlInput {
   flightMode: FlightMode;
 }
 
+/** NOTE: `getTelemetry()` returns the SAME instance every call, mutated in place — read the
+ * fields before calling it again, don't hold onto one snapshot across frames/steps. */
 export interface QuadcopterTelemetry {
   position: Vector3;
   velocity: Vector3;
@@ -75,6 +77,25 @@ const _desiredRate = new Vector3();
 const _euler = new Euler();
 const ZERO_THRUST = [0, 0, 0, 0];
 
+// getTelemetry() is called every rAF frame; returning a fresh object graph each time (4 cloned
+// Vector3/Quaternion, a spread + a mapped array) was the single largest per-frame GC source in
+// the app. This persistent object is mutated in place and returned by reference instead — callers
+// must read it before the next getTelemetry() call, not retain it across frames.
+function createTelemetryScratch(): QuadcopterTelemetry {
+  return {
+    position: new Vector3(),
+    velocity: new Vector3(),
+    quaternion: new Quaternion(),
+    angularVelocity: new Vector3(),
+    motorThrust: [0, 0, 0, 0],
+    motorNormalized: [0, 0, 0, 0],
+    armed: false,
+    crashed: false,
+    altitudeM: 0,
+    speedMs: 0,
+  };
+}
+
 export class QuadcopterPhysics {
   position = new Vector3(0, 1, -1); // start ~1m up, 1m in front of origin
   velocity = new Vector3();
@@ -96,14 +117,15 @@ export class QuadcopterPhysics {
 
   private inertiaInv = new Vector3(1 / INERTIA.xx, 1 / INERTIA.yy, 1 / INERTIA.zz);
   private inertiaDiag = new Vector3(INERTIA.xx, INERTIA.yy, INERTIA.zz);
+  private telemetry = createTelemetryScratch();
 
   reset(position?: Vector3): void {
     this.position.copy(position ?? new Vector3(0, 1, -1));
     this.velocity.set(0, 0, 0);
     this.quaternion.identity();
     this.angularVelocity.set(0, 0, 0);
-    this.motorThrustActual = [0, 0, 0, 0];
-    this.motorThrustCommand = [0, 0, 0, 0];
+    this.motorThrustActual.fill(0);
+    this.motorThrustCommand.fill(0);
     this.crashed = false;
     this.ratePID.roll.reset();
     this.ratePID.pitch.reset();
@@ -121,7 +143,7 @@ export class QuadcopterPhysics {
     if (armed && this.crashed) return; // must reset before re-arming from a crash
     this.armed = armed;
     if (!armed) {
-      this.motorThrustCommand = [0, 0, 0, 0];
+      this.motorThrustCommand.fill(0);
     }
   }
 
@@ -145,7 +167,7 @@ export class QuadcopterPhysics {
 
     const totalThrustCmd = this.computeTotalThrustCommand(input, dt);
 
-    this.motorThrustCommand = mixMotors(totalThrustCmd, pitchTorqueCmd, rollTorqueCmd, yawTorqueCmd);
+    mixMotors(totalThrustCmd, pitchTorqueCmd, rollTorqueCmd, yawTorqueCmd, this.motorThrustCommand);
     for (let i = 0; i < 4; i++) {
       if (this.motorThrustCommand[i] < 0) this.motorThrustCommand[i] = 0;
       else if (this.motorThrustCommand[i] > MAX_THRUST_PER_MOTOR) this.motorThrustCommand[i] = MAX_THRUST_PER_MOTOR;
@@ -311,19 +333,22 @@ export class QuadcopterPhysics {
     return total < 0 ? 0 : total > maxTotal ? maxTotal : total;
   }
 
+  /** Returns a shared, mutated-in-place telemetry snapshot — read it before the next call, don't retain it across frames. */
   getTelemetry(floorY: number): QuadcopterTelemetry {
-    return {
-      position: this.position.clone(),
-      velocity: this.velocity.clone(),
-      quaternion: this.quaternion.clone(),
-      angularVelocity: this.angularVelocity.clone(),
-      motorThrust: [...this.motorThrustActual],
-      motorNormalized: this.motorThrustActual.map((t) => t / MAX_THRUST_PER_MOTOR),
-      armed: this.armed,
-      crashed: this.crashed,
-      altitudeM: this.position.y - floorY,
-      speedMs: this.velocity.length(),
-    };
+    const t = this.telemetry;
+    t.position.copy(this.position);
+    t.velocity.copy(this.velocity);
+    t.quaternion.copy(this.quaternion);
+    t.angularVelocity.copy(this.angularVelocity);
+    for (let i = 0; i < 4; i++) {
+      t.motorThrust[i] = this.motorThrustActual[i];
+      t.motorNormalized[i] = this.motorThrustActual[i] / MAX_THRUST_PER_MOTOR;
+    }
+    t.armed = this.armed;
+    t.crashed = this.crashed;
+    t.altitudeM = this.position.y - floorY;
+    t.speedMs = this.velocity.length();
+    return t;
   }
 }
 

@@ -92,15 +92,19 @@ export class RoomBoundary {
    * on contact. `margin` is the drone's collision radius.
    */
   resolve(position: Vector3, velocity: Vector3, margin: number): BoundaryResolution {
-    const signedDist = this.polygon ? this.signedDistancePolygon(position.x, position.z) : this.signedDistanceCircle(position.x, position.z);
-    const impactSpeedMs = signedDist < margin ? (this.polygon ? this.pushOutPolygon(position, velocity, margin) : this.pushOutCircle(position, velocity, margin)) : 0;
+    const signedDist = this.signedDistance(position.x, position.z);
+    const impactSpeedMs =
+      signedDist < margin ? (this.polygon ? this.pushOutPolygon(position, velocity, margin) : this.pushOutCircle(position, velocity, margin)) : 0;
     return { proximity: proximityFromSignedDist(signedDist, margin), impactSpeedMs };
   }
 
   /** Read-only version of resolve()'s proximity value for HUD warnings — does not mutate position/velocity. */
   proximity(x: number, z: number, margin: number): number {
-    const signedDist = this.polygon ? this.signedDistancePolygon(x, z) : this.signedDistanceCircle(x, z);
-    return proximityFromSignedDist(signedDist, margin);
+    return proximityFromSignedDist(this.signedDistance(x, z), margin);
+  }
+
+  private signedDistance(x: number, z: number): number {
+    return this.polygon ? this.signedDistancePolygon(x, z) : this.signedDistanceCircle(x, z);
   }
 
   private signedDistanceCircle(x: number, z: number): number {

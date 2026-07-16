@@ -84,5 +84,4 @@ export const CRASH_SPEED_THRESHOLD = 3.0; // m/s impact speed that triggers auto
 // the drone first touches the wall (measured empirically, see scripts/simTest.ts Test 15), so
 // reusing CRASH_SPEED_THRESHOLD here would almost never fire.
 export const WALL_CRASH_SPEED_THRESHOLD = 2.0; // m/s outward impact speed that crashes on a wall/boundary hit
-export const PROP_RADIUS = 0.035; // m, purely visual/collision margin for body radius approx
 export const BODY_RADIUS = 0.16; // m, approx bounding sphere radius for simple collisions

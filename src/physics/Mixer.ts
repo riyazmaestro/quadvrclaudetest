@@ -76,25 +76,21 @@ function invert4x4(src: number[][]): number[][] {
 const ALLOCATION_MATRIX = buildAllocationMatrix();
 const INVERSE_ALLOCATION_MATRIX = invert4x4(ALLOCATION_MATRIX);
 
-/** Solve for the 4 motor thrusts that produce the desired [thrust, pitch, roll, yaw] command. */
-export function mixMotors(totalThrust: number, pitchTorque: number, rollTorque: number, yawTorque: number): number[] {
-  const cmd = [totalThrust, pitchTorque, rollTorque, yawTorque];
-  const out = [0, 0, 0, 0];
+// This runs every physics substep (240Hz) while armed, so the input command vector is a
+// module-level scratch array rather than a fresh allocation per call (not re-entrant/recursive,
+// so reuse is safe) — matches the `_tmpVec`-style scratch convention used in QuadcopterPhysics.ts.
+const _cmdScratch = [0, 0, 0, 0];
+
+/** Solve for the 4 motor thrusts that produce the desired [thrust, pitch, roll, yaw] command, writing into `out` (must be length 4). */
+export function mixMotors(totalThrust: number, pitchTorque: number, rollTorque: number, yawTorque: number, out: number[]): number[] {
+  _cmdScratch[0] = totalThrust;
+  _cmdScratch[1] = pitchTorque;
+  _cmdScratch[2] = rollTorque;
+  _cmdScratch[3] = yawTorque;
   for (let i = 0; i < 4; i++) {
     let sum = 0;
-    for (let j = 0; j < 4; j++) sum += INVERSE_ALLOCATION_MATRIX[i][j] * cmd[j];
+    for (let j = 0; j < 4; j++) sum += INVERSE_ALLOCATION_MATRIX[i][j] * _cmdScratch[j];
     out[i] = sum;
   }
   return out;
-}
-
-/** Given actual (post-clamp, post-lag) per-motor thrusts, compute resulting net force/torque. */
-export function computeNetFromMotorThrusts(thrusts: number[]): { totalThrust: number; pitchTorque: number; rollTorque: number; yawTorque: number } {
-  const cmd = [0, 0, 0, 0];
-  for (let row = 0; row < 4; row++) {
-    for (let i = 0; i < 4; i++) {
-      cmd[row] += ALLOCATION_MATRIX[row][i] * thrusts[i];
-    }
-  }
-  return { totalThrust: cmd[0], pitchTorque: cmd[1], rollTorque: cmd[2], yawTorque: cmd[3] };
 }

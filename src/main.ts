@@ -10,7 +10,7 @@ import { KeyboardInput } from './input/KeyboardInput';
 import type { InputSource } from './input/types';
 import { QuadcopterPhysics } from './physics/QuadcopterPhysics';
 import { FIXED_DT, BODY_RADIUS, WALL_CRASH_SPEED_THRESHOLD } from './physics/constants';
-import { Hud } from './ui/Hud';
+import { Hud, type HudData } from './ui/Hud';
 import { MotorAudio } from './audio/MotorAudio';
 
 const FALLBACK_ARENA_RADIUS_M = 1.75;
@@ -97,6 +97,18 @@ void initEnterArButton();
 let lastFrameTime = performance.now();
 let accumulator = 0;
 
+// Reused every frame instead of building a fresh object literal each time (this is a flat,
+// primitives-only shape read synchronously by Hud.update(), so reuse is trivially safe).
+const hudDataScratch: HudData = {
+  armed: false,
+  flightMode: 'ANGLE',
+  altitudeM: 0,
+  speedMs: 0,
+  crashed: false,
+  boundaryProximity: 0,
+  flightTimeS: 0,
+};
+
 sceneSetup.renderer.setAnimationLoop(() => {
   const now = performance.now();
   const frameDt = Math.min(0.25, (now - lastFrameTime) / 1000);
@@ -129,19 +141,15 @@ sceneSetup.renderer.setAnimationLoop(() => {
 
   const boundaryProximity = roomBoundary.proximity(telemetry.position.x, telemetry.position.z, BODY_RADIUS);
   motorAudio.update(telemetry.motorNormalized, telemetry.armed);
-  hud.update(
-    {
-      armed: telemetry.armed,
-      flightMode: frameInput.flightMode,
-      altitudeM: telemetry.altitudeM,
-      speedMs: telemetry.speedMs,
-      crashed: telemetry.crashed,
-      boundaryProximity,
-      flightTimeS: telemetry.armed ? (now - flightStartTime) / 1000 : 0,
-    },
-    sceneSetup.camera,
-    frameDt
-  );
+
+  hudDataScratch.armed = telemetry.armed;
+  hudDataScratch.flightMode = frameInput.flightMode;
+  hudDataScratch.altitudeM = telemetry.altitudeM;
+  hudDataScratch.speedMs = telemetry.speedMs;
+  hudDataScratch.crashed = telemetry.crashed;
+  hudDataScratch.boundaryProximity = boundaryProximity;
+  hudDataScratch.flightTimeS = telemetry.armed ? (now - flightStartTime) / 1000 : 0;
+  hud.update(hudDataScratch, sceneSetup.camera, frameDt);
 
   if (!xrSessionManager.isPresenting) orbitControls.update();
   sceneSetup.renderer.render(sceneSetup.scene, sceneSetup.camera);

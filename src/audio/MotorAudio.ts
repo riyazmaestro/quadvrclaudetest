@@ -26,7 +26,13 @@ function clamp01(value: number): number {
 
 function computeRms(values: number[]): number {
   if (values.length === 0) return 0;
-  const sumSquares = values.reduce((sum, v) => sum + clamp01(v) ** 2, 0);
+  // Plain loop instead of .reduce(): this runs every render frame, and .reduce() with an inline
+  // arrow allocates a new closure per call for no benefit over a loop here.
+  let sumSquares = 0;
+  for (let i = 0; i < values.length; i++) {
+    const v = clamp01(values[i]);
+    sumSquares += v * v;
+  }
   return Math.sqrt(sumSquares / values.length);
 }
 

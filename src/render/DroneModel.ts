@@ -1,5 +1,6 @@
 import { BoxGeometry, CylinderGeometry, Group, Mesh, MeshStandardMaterial, Object3D } from 'three';
 import { MOTOR_LAYOUT } from '../physics/Mixer';
+import { ARM_LENGTH } from '../physics/constants';
 
 const MAX_VISUAL_SPIN_RAD_S = 90; // purely cosmetic prop spin rate at full thrust, not real RPM
 const IDLE_SPIN_RAD_S = 12; // gentle spin while armed but at low/zero thrust, reads as "alive"
@@ -26,8 +27,10 @@ export class DroneModel {
     const propMat = new MeshStandardMaterial({ color: 0x0d1116, roughness: 0.25, metalness: 0.2 });
 
     for (const motor of MOTOR_LAYOUT) {
-      const armLength = Math.hypot(motor.x, motor.z);
-      const arm = new Mesh(new BoxGeometry(0.012, 0.01, armLength), armMat);
+      // ARM_LENGTH (center-to-motor distance) applies to every motor identically only because
+      // this is a symmetric X-frame (HALF_X === HALF_Z in constants.ts); recomputing it per-motor
+      // via Math.hypot would give the same answer 4 times over for no reason.
+      const arm = new Mesh(new BoxGeometry(0.012, 0.01, ARM_LENGTH), armMat);
       arm.position.set(motor.x / 2, 0, motor.z / 2);
       arm.rotation.y = Math.atan2(motor.x, motor.z);
       this.root.add(arm);
