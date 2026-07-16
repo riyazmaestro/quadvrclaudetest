@@ -366,12 +366,33 @@ README.md             User-facing setup/controls/safety/troubleshooting docs.
   spin). **Flagged to the user that the helicopter's exact look is a best-effort approximation, not
   a verified match to their reference image** — worth a look and feedback once tested. Build
   verified green via GitHub Actions.
+- **Added a second landing-page button, "Enter AR miniature" — deliberately a placeholder.** User
+  asked for a second button on the landing page; asked what it should do before guessing (this
+  came after an earlier turn where a different feature request — a real `immersive-vr`-style second
+  mode vs. a calibration-skipping "quick start" vs. something else — genuinely could have gone
+  several ways, so it was worth clarifying rather than building the wrong thing). User's answer:
+  the label is "Enter AR miniature," but its actual behavior is still undecided and will be
+  specified later — for now it should just show a "coming soon" screen with a way back. Implemented
+  exactly that, nothing more: `index.html` wraps the existing tagline/buttons/instructions/status
+  line in a new `#landing-main` div (sibling to a new `#coming-soon` div with placeholder text + a
+  Back button), both inside the existing `#landing`. `main.ts` just toggles which of the two is
+  shown via `style.display`/a `.visible` class — no new phase/state-machine concept, no session
+  logic touched at all. `style.css` added a shared `.button-row` flex layout and styled the new
+  button as a secondary (outlined, not filled) variant so "Enter AR" still reads as the primary
+  action. Build verified green via GitHub Actions.
 
 ## Next steps (keep this section current)
 The app is deployed live (GitHub Pages, Actions-based deploy) and feature-complete: manual
 walk-the-room calibration boundary (no circle fallback, can't be redone once created), a toggleable
 fixed 9ft ceiling boundary, wall-bump visual feedback, a black drone model with a prominent tail,
-and a switchable toy-helicopter alternative model. Nothing is currently blocking. Remaining items:
+a switchable toy-helicopter alternative model, and a landing page with a second ("Enter AR
+miniature") button that's an intentional placeholder. Nothing is currently blocking. Remaining items:
+- [ ] **"Enter AR miniature" has no real design yet — its actual behavior is still owed to the
+      user.** Only the label and a "coming soon" placeholder exist (`index.html`'s `#coming-soon`
+      div, wired in `main.ts`). Do not guess at a design unprompted; wait for the user to specify
+      what this mode should actually do, then treat it as a proper new feature (likely needs
+      EnterPlanMode given it'll touch session start, possibly scale/placement logic, given how
+      substantial the last several features have been).
 - [ ] Real in-headset testing pass (the one thing that genuinely can't be done from this
       machine) — flight feel (PID gains, drag, max angles/rates in `constants.ts`) is
       headless-sim-validated for physical plausibility but never felt by a human in AR.
@@ -380,8 +401,8 @@ and a switchable toy-helicopter alternative model. Nothing is currently blocking
       does auto-closing the calibration loop at 0.4m feel right, does `gripSpace ?? targetRaySpace`
       give a stable x/z reading while standing still, is the tail visible/helpful for orientation,
       does the wall-bump squash pulse read well or feel too subtle/too much, does 9ft feel like the
-      right default ceiling height, and — new — **does the helicopter model actually resemble what
-      the user had in mind** (built from general toy-heli conventions, not a verified image match).
+      right default ceiling height, and does the helicopter model actually resemble what the user
+      had in mind (built from general toy-heli conventions, not a verified image match).
 - [ ] Everything else is genuinely done: physics, XR session + calibrated boundary (floor +
       toggleable ceiling), input (controller + keyboard), render (2 switchable models), HUD, audio,
       HTTPS dev server, README, GitHub Pages deployment, two independent review passes, 34/34
