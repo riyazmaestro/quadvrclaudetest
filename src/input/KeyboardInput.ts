@@ -58,6 +58,7 @@ export class KeyboardInput implements InputSource {
     this.prevM = m;
     this.prevR = r;
 
-    return { throttle, pitch, roll, yaw, armed: this.armed, flightMode: this.flightMode, resetRequested, killSwitch };
+    // No desktop key drives this — there's no calibration concept without a real headset walk.
+    return { throttle, pitch, roll, yaw, armed: this.armed, flightMode: this.flightMode, resetRequested, redoBoundaryRequested: false, killSwitch };
   }
 }

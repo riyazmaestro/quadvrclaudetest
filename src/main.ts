@@ -13,18 +13,20 @@ import { FIXED_DT, BODY_RADIUS } from './physics/constants';
 import { Hud, type HudData } from './ui/Hud';
 import { MotorAudio } from './audio/MotorAudio';
 
-const FALLBACK_ARENA_RADIUS_M = 4;
 const MAX_SUBSTEPS_PER_FRAME = 8;
 const SPAWN_POSITION = new Vector3(0, 1, -1);
 const MIN_CALIBRATION_POINTS = 3;
+// How close (in meters) a newly-placed point must be to the very first one before it's treated
+// as "closing the loop" instead of adding another corner — roughly "you're standing back where
+// you started," not a precise click target.
+const CLOSE_LOOP_DISTANCE_M = 0.4;
 
 const sceneSetup = new SceneSetup();
 const drone = new DroneModel();
 sceneSetup.scene.add(drone.root);
 const physics = new QuadcopterPhysics();
 const roomBoundary = new RoomBoundary();
-roomBoundary.setFallbackRadius(FALLBACK_ARENA_RADIUS_M);
-sceneSetup.setBoundaryVisual(roomBoundary.getVisualBoundary());
+sceneSetup.setBoundaryVisual(roomBoundary.getPolygon());
 
 const controllerInput = new ControllerInput();
 const keyboardInput = new KeyboardInput();
@@ -50,19 +52,30 @@ orbitControls.update();
 let flightStartTime = performance.now();
 let wasArmed = false;
 
-// The app's only phase state: 'landing' (pre-session) -> 'calibrating' (session just started, the
-// pilot is walking the room's corners) -> 'flying' (boundary locked in, physics/input live).
-// Flight stays gated off during 'calibrating' so the drone can't be armed before its boundary
-// actually means anything.
+// The app's only phase state: 'landing' (pre-session) -> 'calibrating' (the pilot is walking the
+// room's corners) -> 'flying' (boundary locked in, physics/input live). Flight stays gated off
+// during 'calibrating' so the drone can't be armed before its boundary actually means anything.
+// There is no circle fallback anywhere: flight simply can't start until a real polygon exists.
 type Phase = 'landing' | 'calibrating' | 'flying';
 let phase: Phase = 'landing';
 let calibrationPoints: BoundaryPoint[] = [];
 
-/** Locks in the boundary (calibrated polygon, or null to fall back to the circle) and starts flight. */
-function finishCalibration(polygon: BoundaryPoint[] | null): void {
+/** (Re)enters the calibration walk — used both for the first walk on session start and for a mid-session redo. */
+function enterCalibrating(): void {
+  controllerInput.forceDisarm();
+  phase = 'calibrating';
+  calibrationPoints = [];
+  sceneSetup.setCalibrationPoints([]);
+  sceneSetup.setCalibrationPointer(null);
+  calibrationOverlayText.textContent = 'Walk to a corner of your flying space and pull the right trigger to drop a point.';
+  calibrationOverlay.classList.add('visible');
+}
+
+/** Locks in the walked polygon and starts flight. Only called once >= MIN_CALIBRATION_POINTS points exist. */
+function finishCalibration(polygon: BoundaryPoint[]): void {
   roomBoundary.setPolygon(polygon);
-  sceneSetup.setBoundaryVisual(roomBoundary.getVisualBoundary());
-  physics.reset(SPAWN_POSITION.clone());
+  sceneSetup.setBoundaryVisual(roomBoundary.getPolygon());
+  physics.reset(new Vector3(roomBoundary.getCentroid().x, 1, roomBoundary.getCentroid().z));
   flightStartTime = performance.now();
   motorAudio.start();
   calibrationOverlay.classList.remove('visible');
@@ -76,10 +89,7 @@ const xrSessionManager = new XRSessionManager(sceneSetup.renderer, hudRoot, {
     controllerInput.setSession(session);
     landing.style.display = 'none';
     orbitControls.enabled = false;
-    phase = 'calibrating';
-    calibrationPoints = [];
-    calibrationOverlayText.textContent = 'Walk to a corner of your flying space and pull the right trigger to drop a point.';
-    calibrationOverlay.classList.add('visible');
+    enterCalibrating();
   },
   onSessionEnd: () => {
     controllerInput.setSession(null);
@@ -93,7 +103,7 @@ const xrSessionManager = new XRSessionManager(sceneSetup.renderer, hudRoot, {
   onVisibilityChange: (visibilityState) => {
     // If the user lifts/removes the headset mid-flight they can no longer see the drone (or the
     // boundary warning), so treat "app hidden" like a safety pause: force a disarm rather than
-    // let it keep flying unattended. They'll need to grip-arm again once visible.
+    // let it keep flying unattended. They'll need to trigger-arm again once visible.
     if (visibilityState !== 'visible') controllerInput.forceDisarm();
   },
 });
@@ -120,12 +130,16 @@ async function initEnterArButton(): Promise<void> {
 }
 void initEnterArButton();
 
+function distance(a: BoundaryPoint, b: BoundaryPoint): number {
+  return Math.hypot(a.x - b.x, a.z - b.z);
+}
+
 /** Picks the right overlay message for the current calibration state — no new UI subsystem, just text. */
-function calibrationStatusText(pointer: { x: number; z: number } | null, pointCount: number, finishedTooEarly: boolean): string {
-  if (finishedTooEarly) return `Place at least ${MIN_CALIBRATION_POINTS} corners first.`;
+function calibrationStatusText(pointer: BoundaryPoint | null, pointCount: number, nearStart: boolean): string {
   if (pointer === null) return 'Controller not detected — hold up your right controller.';
-  if (pointCount >= MIN_CALIBRATION_POINTS) return `${pointCount} corners placed — press X to finish, or keep walking. Y skips to a default circle.`;
-  return `Walk to a corner of your flying space and pull the right trigger to drop a point (${pointCount} so far).`;
+  if (nearStart) return 'Back at the start — pull the trigger again to close the boundary.';
+  if (pointCount === 0) return 'Walk to a corner of your flying space and pull the right trigger to drop a point.';
+  return `${pointCount} corners placed — keep walking the edge (around furniture too). Return to your first point and mark it again to close the boundary.`;
 }
 
 let lastFrameTime = performance.now();
@@ -152,21 +166,24 @@ sceneSetup.renderer.setAnimationLoop((_time, frame) => {
     const calInput = controllerInput.pollCalibration(frame, referenceSpace);
     sceneSetup.setCalibrationPointer(calInput.pointer);
 
-    if (calInput.placeRequested && calInput.pointer) {
-      calibrationPoints.push(calInput.pointer);
+    const nearStart =
+      calInput.pointer !== null && calibrationPoints.length >= MIN_CALIBRATION_POINTS && distance(calInput.pointer, calibrationPoints[0]) <= CLOSE_LOOP_DISTANCE_M;
+
+    if (calInput.redoBoundaryRequested) {
+      calibrationPoints = [];
       sceneSetup.setCalibrationPoints(calibrationPoints);
-    } else if (calInput.undoRequested && calibrationPoints.length > 0) {
-      calibrationPoints.pop();
-      sceneSetup.setCalibrationPoints(calibrationPoints);
+    } else if (calInput.placeRequested && calInput.pointer) {
+      if (nearStart) {
+        finishCalibration([...calibrationPoints]);
+      } else {
+        calibrationPoints.push(calInput.pointer);
+        sceneSetup.setCalibrationPoints(calibrationPoints);
+      }
     }
 
-    const finishedTooEarly = calInput.finishRequested && calibrationPoints.length < MIN_CALIBRATION_POINTS;
-    if (calInput.skipRequested) {
-      finishCalibration(null); // Bail out to the default circle — RoomBoundary.setPolygon(null) handles it.
-    } else if (calInput.finishRequested && calibrationPoints.length >= MIN_CALIBRATION_POINTS) {
-      finishCalibration([...calibrationPoints]);
-    } else {
-      calibrationOverlayText.textContent = calibrationStatusText(calInput.pointer, calibrationPoints.length, finishedTooEarly);
+    if (phase === 'calibrating') {
+      // finishCalibration() above may have just flipped phase to 'flying' this same frame.
+      calibrationOverlayText.textContent = calibrationStatusText(calInput.pointer, calibrationPoints.length, nearStart);
     }
   }
 
@@ -176,46 +193,53 @@ sceneSetup.renderer.setAnimationLoop((_time, frame) => {
     const activeInput: InputSource = xrSessionManager.isPresenting ? controllerInput : keyboardInput;
     const frameInput = activeInput.poll();
 
-    physics.setArmed(frameInput.armed);
-    if (frameInput.resetRequested) {
-      physics.reset(SPAWN_POSITION.clone());
-    }
-    if (physics.armed && !wasArmed) flightStartTime = now; // rising edge only, so a mid-flight disarm+rearm restarts the timer
-    wasArmed = physics.armed;
+    if (frameInput.redoBoundaryRequested) {
+      enterCalibrating();
+    } else {
+      physics.setArmed(frameInput.armed);
+      if (frameInput.resetRequested) {
+        const resetPos = roomBoundary.hasPolygon()
+          ? new Vector3(roomBoundary.getCentroid().x, 1, roomBoundary.getCentroid().z)
+          : SPAWN_POSITION.clone();
+        physics.reset(resetPos);
+      }
+      if (physics.armed && !wasArmed) flightStartTime = now; // rising edge only, so a mid-flight disarm+rearm restarts the timer
+      wasArmed = physics.armed;
 
-    accumulator = Math.min(accumulator + frameDt, FIXED_DT * MAX_SUBSTEPS_PER_FRAME);
-    let substeps = 0;
-    while (accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS_PER_FRAME) {
-      physics.step(FIXED_DT, frameInput, 0);
-      roomBoundary.resolve(physics.position, physics.velocity, BODY_RADIUS);
-      accumulator -= FIXED_DT;
-      substeps++;
-    }
+      accumulator = Math.min(accumulator + frameDt, FIXED_DT * MAX_SUBSTEPS_PER_FRAME);
+      let substeps = 0;
+      while (accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS_PER_FRAME) {
+        physics.step(FIXED_DT, frameInput, 0);
+        if (roomBoundary.hasPolygon()) roomBoundary.resolve(physics.position, physics.velocity, BODY_RADIUS);
+        accumulator -= FIXED_DT;
+        substeps++;
+      }
 
-    const telemetry = physics.getTelemetry(0);
-    drone.root.position.copy(telemetry.position);
-    drone.root.quaternion.copy(telemetry.quaternion);
-    drone.update(frameDt, telemetry.motorNormalized, telemetry.armed);
+      const telemetry = physics.getTelemetry(0);
+      drone.root.position.copy(telemetry.position);
+      drone.root.quaternion.copy(telemetry.quaternion);
+      drone.update(frameDt, telemetry.motorNormalized, telemetry.armed);
 
-    const boundaryProximity = roomBoundary.proximity(telemetry.position.x, telemetry.position.z, BODY_RADIUS);
-    motorAudio.update(telemetry.motorNormalized, telemetry.armed);
+      const boundaryProximity = roomBoundary.hasPolygon() ? roomBoundary.proximity(telemetry.position.x, telemetry.position.z, BODY_RADIUS) : 0;
+      motorAudio.update(telemetry.motorNormalized, telemetry.armed);
 
-    hudDataScratch.armed = telemetry.armed;
-    hudDataScratch.flightMode = frameInput.flightMode;
-    hudDataScratch.altitudeM = telemetry.altitudeM;
-    hudDataScratch.speedMs = telemetry.speedMs;
-    hudDataScratch.boundaryProximity = boundaryProximity;
-    hudDataScratch.flightTimeS = telemetry.armed ? (now - flightStartTime) / 1000 : 0;
-    hud.update(hudDataScratch, sceneSetup.camera, frameDt);
+      hudDataScratch.armed = telemetry.armed;
+      hudDataScratch.flightMode = frameInput.flightMode;
+      hudDataScratch.altitudeM = telemetry.altitudeM;
+      hudDataScratch.speedMs = telemetry.speedMs;
+      hudDataScratch.boundaryProximity = boundaryProximity;
+      hudDataScratch.flightTimeS = telemetry.armed ? (now - flightStartTime) / 1000 : 0;
+      hud.update(hudDataScratch, sceneSetup.camera, frameDt);
 
-    if (import.meta.env.DEV) {
-      // Dev-only hook: lets a headless smoke test (see scripts/smokeTest.ts) assert on real
-      // simulation state without a headset. Dead-code-eliminated from production builds.
-      (window as unknown as { __quadDebug: unknown }).__quadDebug = {
-        telemetry,
-        frameInput,
-        isPresenting: xrSessionManager.isPresenting,
-      };
+      if (import.meta.env.DEV) {
+        // Dev-only hook: lets a headless smoke test (see scripts/smokeTest.ts) assert on real
+        // simulation state without a headset. Dead-code-eliminated from production builds.
+        (window as unknown as { __quadDebug: unknown }).__quadDebug = {
+          telemetry,
+          frameInput,
+          isPresenting: xrSessionManager.isPresenting,
+        };
+      }
     }
   }
 

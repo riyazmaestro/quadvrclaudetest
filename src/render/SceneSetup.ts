@@ -17,10 +17,8 @@ import {
 import type { BoundaryPoint } from '../xr/XRSessionManager';
 
 const BOUNDARY_Y = 0.01;
-const SCANNED_BOUNDARY_COLOR = 0x4fd1c5; // cyan: a real (sanity-checked) room-scan reading
-const FALLBACK_BOUNDARY_COLOR = 0xd9a441; // amber: safe-default circle, not the real room shape
-const CALIBRATION_COLOR = 0xe8ecf1; // near-white: in-progress calibration markers/pointer, distinct from either final boundary color
-const CIRCLE_SEGMENTS = 48;
+const BOUNDARY_COLOR = 0x4fd1c5; // cyan: the pilot's own marked room boundary
+const CALIBRATION_COLOR = 0xe8ecf1; // near-white: in-progress calibration markers/pointer, distinct from the final boundary color
 
 export class SceneSetup {
   readonly scene = new Scene();
@@ -54,25 +52,24 @@ export class SceneSetup {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
 
-  /** Draws a glowing line loop on the floor marking the safe-fly boundary (scanned room polygon or fallback circle). */
-  setBoundaryVisual(boundary: { polygon: BoundaryPoint[] | null; radius: number; isScannedPolygon: boolean }): void {
+  /** Draws a glowing closed line loop on the floor marking the pilot's marked room boundary. No-ops (clearing any existing line) if the polygon isn't ready yet (pre-calibration). */
+  setBoundaryVisual(polygon: BoundaryPoint[]): void {
     if (this.boundaryLine) {
       this.scene.remove(this.boundaryLine);
       this.boundaryLine.geometry.dispose();
       (this.boundaryLine.material as LineBasicMaterial).dispose();
       this.boundaryLine = null;
     }
+    if (polygon.length < 3) return;
 
-    const points = boundary.polygon ?? circlePoints(boundary.radius);
     const positions: number[] = [];
-    for (const p of points) positions.push(p.x, BOUNDARY_Y, p.z);
-    const first = points[0];
+    for (const p of polygon) positions.push(p.x, BOUNDARY_Y, p.z);
+    const first = polygon[0];
     positions.push(first.x, BOUNDARY_Y, first.z); // close the loop
 
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
-    const color = boundary.isScannedPolygon ? SCANNED_BOUNDARY_COLOR : FALLBACK_BOUNDARY_COLOR;
-    const material = new LineBasicMaterial({ color, transparent: true, opacity: 0.55 });
+    const material = new LineBasicMaterial({ color: BOUNDARY_COLOR, transparent: true, opacity: 0.55 });
     this.boundaryLine = new Line(geometry, material);
     this.scene.add(this.boundaryLine);
   }
@@ -136,13 +133,4 @@ export class SceneSetup {
     this.setCalibrationPointer(null);
     this.setCalibrationPoints([]);
   }
-}
-
-function circlePoints(radius: number): BoundaryPoint[] {
-  const points: BoundaryPoint[] = [];
-  for (let i = 0; i < CIRCLE_SEGMENTS; i++) {
-    const angle = (i / CIRCLE_SEGMENTS) * Math.PI * 2;
-    points.push({ x: Math.cos(angle) * radius, z: Math.sin(angle) * radius });
-  }
-  return points;
 }

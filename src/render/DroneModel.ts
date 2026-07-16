@@ -54,6 +54,18 @@ export class DroneModel {
     rearLed.position.set(0, 0, 0.047);
     this.root.add(rearLed);
 
+    // Tail: a bright rod + flag sticking straight out the back, nothing equivalent up front — an
+    // unambiguous "this way is backward" cue that reads at a glance, unlike the subtler
+    // canopy/antenna front-vs-rear asymmetry alone.
+    const tailMat = new MeshStandardMaterial({ color: 0xffb300, roughness: 0.4, emissive: 0x4a2f00 });
+    const tailRod = new Mesh(new BoxGeometry(0.006, 0.006, 0.09), tailMat);
+    tailRod.position.set(0, 0.012, 0.09);
+    this.root.add(tailRod);
+
+    const tailFlag = new Mesh(new BoxGeometry(0.002, 0.03, 0.035), tailMat);
+    tailFlag.position.set(0, 0.024, 0.13);
+    this.root.add(tailFlag);
+
     const armMat = new MeshStandardMaterial({ color: 0x2b3947, roughness: 0.55 });
     const hubMat = new MeshStandardMaterial({ color: 0x111417, roughness: 0.3, metalness: 0.5 });
     const propMat = new MeshStandardMaterial({ color: 0x0d1116, roughness: 0.25, metalness: 0.2 });

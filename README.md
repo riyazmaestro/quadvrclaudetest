@@ -34,7 +34,9 @@ computer's LAN IP, not `localhost`). Then:
    hardware). Click through it (usually **Advanced → Proceed**).
 2. You'll land on the app's start screen. Tap **Enter AR** and grant camera/spatial-data
    permission when prompted.
-3. Stand roughly in the middle of your clear floor space, put the headset on properly, and fly.
+3. Walk the edge of your flying space, marking each corner with the right trigger (see
+   [Controls](#controls-mode-2-rc-layout) below), then close the loop by returning to your first
+   point. Once the boundary's locked in, put the headset on properly and fly.
 
 If the Quest can't reach the Network URL at all (page just times out), see
 [Troubleshooting](#troubleshooting) — it's almost always the host computer's firewall.
@@ -67,10 +69,15 @@ gets a chance to run.
 | **Left stick**, horizontal | Yaw (rotate left/right) |
 | **Right stick**, vertical | Pitch (tilt forward/back to move forward/back) |
 | **Right stick**, horizontal | Roll (tilt left/right to strafe left/right) |
-| **Grip** (either hand) | Arm / disarm the motors |
-| **A** (right controller) | Toggle ACRO ↔ ANGLE flight mode |
-| **Y** (left controller) | Reset the drone to your feet (always leaves it disarmed) |
-| **Both triggers together** | Emergency kill switch — instantly cuts power, from any state |
+| **Right trigger** | Engage / disengage the motors |
+| **A** (right controller) | Reset the drone to the center of the room (always leaves it disarmed) |
+| **X** (left controller) | Re-walk the room boundary from scratch |
+| **Y** (left controller) | Toggle ACRO ↔ ANGLE flight mode |
+| **Both grips together** | Emergency kill switch — instantly cuts power, from any state |
+
+During the room-boundary walk (right after entering AR): **right trigger** drops a boundary point
+at your current position, and walking back to your first point and marking it again closes the
+loop. **X** clears the walk and starts over.
 
 **ANGLE mode** (default) is self-leveling with altitude hold — release the sticks and the drone
 holds its attitude and height. This is the one to fly indoors. **ACRO mode** is direct rate
@@ -82,16 +89,18 @@ players who already know what they're doing.
 This flies a virtual object around your *real* living room, so a few things are deliberately
 conservative:
 
-- The app tries to read your headset's Guardian/boundary data to know your room's real shape, but
-  that data has been found to be unreliable in AR passthrough mode on current headset software
-  (see `CONTEXT.md` for details) — so by default it constrains flight to a **2.5m-radius circle**
-  around wherever you started, shrinking further if the headset's own boundary hints at a smaller
-  space. It does **not** know where your couch, TV, or walls actually are beyond that. Pick a spot
-  with clear space in all directions before arming.
+- The app does **not** trust the headset's own Guardian/room-scan data — both Guardian's
+  `bounded-floor` boundary and WebXR's `plane-detection` API were tried and found to return a
+  small generic rectangle that cuts through real walls on current headset software (see
+  `CONTEXT.md` for details). Instead, right after entering AR you walk the edge of your own flying
+  space and mark it yourself (right trigger at each corner, walk back to the start to close the
+  loop) — **that's the only source of the boundary; there is no fallback circle.** Flight can't
+  start until you've marked at least 3 corners.
 - A pulsing red glow appears on the in-headset HUD as the drone nears the boundary edge.
-- Squeeze both triggers at any time to instantly cut power if the drone is headed somewhere bad.
+- Squeeze both grips at any time to instantly cut power if the drone is headed somewhere bad.
 - Hitting the floor or the boundary wall just bounces the drone physically (with some restitution
-  and friction) — it stays armed and flyable. Tap **Y** any time to reset it back to your feet.
+  and friction) — it stays armed and flyable. Press **A** any time to reset it back to the center
+  of your marked room, or **X** to re-walk the boundary from scratch.
 
 ## Development
 

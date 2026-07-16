@@ -128,7 +128,7 @@ export class Hud {
       ctx.fillStyle = '#ffd76a';
       ctx.font = '600 20px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('Squeeze grip to arm', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 140);
+      ctx.fillText('Pull right trigger to engage', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 140);
       ctx.textAlign = 'left';
     }
 

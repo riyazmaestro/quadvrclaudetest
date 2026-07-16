@@ -53,9 +53,10 @@ export class ControllerInput implements InputSource {
     let pitch = 0;
     let roll = 0;
     let resetRequested = false;
-    let leftTriggerHeld = false;
-    let rightTriggerHeld = false;
-    let gripJustPressed = false;
+    let redoBoundaryRequested = false;
+    let leftGripHeld = false;
+    let rightGripHeld = false;
+    let rightTriggerJustPressed = false;
 
     if (this.session) {
       for (const source of this.session.inputSources) {
@@ -67,37 +68,36 @@ export class ControllerInput implements InputSource {
         const prev = isLeft ? this.prevLeft : this.prevRight;
         readButtonsInto(gamepad, state);
 
-        // Accumulated across both hands and applied once after the loop (see below) rather than
-        // toggling `armed` inline here: if both grips happen to edge-trigger in the same frame,
-        // toggling per-hand would flip `armed` twice and cancel out to a no-op.
-        if (state.grip && !prev.grip) gripJustPressed = true;
-
         if (isLeft) {
           const rawX = gamepad.axes[AXIS_X] ?? 0;
           const rawY = gamepad.axes[AXIS_Y] ?? 0;
           yaw = shapeAxis(rawX);
           throttle = throttleFromAxis(rawY);
-          if (state.faceUpper && !prev.faceUpper) {
-            resetRequested = true; // Y button
-            this.armed = false; // always require an explicit re-arm after a reset
-          }
-          leftTriggerHeld = state.trigger;
+          if (state.faceUpper && !prev.faceUpper) this.flightMode = this.flightMode === 'ANGLE' ? 'ACRO' : 'ANGLE'; // Y
+          if (state.faceLower && !prev.faceLower) redoBoundaryRequested = true; // X
+          leftGripHeld = state.grip;
         } else {
           const rawX = gamepad.axes[AXIS_X] ?? 0;
           const rawY = gamepad.axes[AXIS_Y] ?? 0;
           roll = shapeAxis(rawX);
           pitch = -shapeAxis(rawY);
-          if (state.faceLower && !prev.faceLower) this.flightMode = this.flightMode === 'ANGLE' ? 'ACRO' : 'ANGLE';
-          rightTriggerHeld = state.trigger;
+          if (state.faceLower && !prev.faceLower) {
+            resetRequested = true; // A
+            this.armed = false; // always require an explicit re-arm after a reset
+          }
+          if (state.trigger && !prev.trigger) rightTriggerJustPressed = true;
+          rightGripHeld = state.grip;
         }
 
         copyHandState(state, prev);
       }
     }
 
-    if (gripJustPressed) this.armed = !this.armed;
+    if (rightTriggerJustPressed) this.armed = !this.armed;
 
-    const killSwitch = leftTriggerHeld && rightTriggerHeld;
+    // Squeezing both grips at once is the emergency stop, independent of the right-trigger
+    // engage/disengage toggle above — level-triggered (held, not edge) same as the kill switch it replaces.
+    const killSwitch = leftGripHeld && rightGripHeld;
     if (killSwitch) this.armed = false;
 
     return {
@@ -108,22 +108,22 @@ export class ControllerInput implements InputSource {
       armed: this.armed,
       flightMode: this.flightMode,
       resetRequested,
+      redoBoundaryRequested,
       killSwitch,
     };
   }
 
   /**
    * Input for the pre-flight boundary-calibration walk (see RoomBoundary/main.ts): right hand
-   * points (its own floor position is the candidate boundary point, no raycasting), left hand
-   * controls the flow. Safe to share `poll()`'s per-hand edge-detection scratch state since the
-   * two methods are never called on the same frame (main.ts phase-gates between them).
+   * points (its own floor position is the candidate boundary point, no raycasting) and places
+   * points with its trigger; left X clears the walk and starts over. Safe to share `poll()`'s
+   * per-hand edge-detection scratch state since the two methods are never called on the same
+   * frame (main.ts phase-gates between them).
    */
   pollCalibration(frame: XRFrame | undefined, referenceSpace: XRReferenceSpace | null): CalibrationInput {
     let pointer: { x: number; z: number } | null = null;
     let placeRequested = false;
-    let undoRequested = false;
-    let finishRequested = false;
-    let skipRequested = false;
+    let redoBoundaryRequested = false;
 
     if (this.session) {
       for (const source of this.session.inputSources) {
@@ -136,11 +136,9 @@ export class ControllerInput implements InputSource {
         readButtonsInto(gamepad, state);
 
         if (isLeft) {
-          if (state.faceLower && !prev.faceLower) finishRequested = true;
-          if (state.faceUpper && !prev.faceUpper) skipRequested = true;
+          if (state.faceLower && !prev.faceLower) redoBoundaryRequested = true; // X
         } else {
           if (state.trigger && !prev.trigger) placeRequested = true;
-          if (state.grip && !prev.grip) undoRequested = true;
 
           if (frame && referenceSpace) {
             const space = source.gripSpace ?? source.targetRaySpace;
@@ -156,7 +154,7 @@ export class ControllerInput implements InputSource {
       }
     }
 
-    return { pointer, placeRequested, undoRequested, finishRequested, skipRequested };
+    return { pointer, placeRequested, redoBoundaryRequested };
   }
 }
 
