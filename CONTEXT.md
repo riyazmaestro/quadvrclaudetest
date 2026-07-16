@@ -338,22 +338,51 @@ README.md             User-facing setup/controls/safety/troubleshooting docs.
   for spin-blur contrast, camera lens stayed dark since it's meant to read as glass), and enlarged
   the tail rod+flag with a stronger emissive glow (`emissiveIntensity: 1.2`) so it's the single most
   eye-catching part of the model from any angle. Build verified green via GitHub Actions.
+- **Added drone-model switching + a toy helicopter model, blackened the quad, removed mid-session
+  boundary redo.** Four asks in one round: (1) drone back to black (was brightened to
+  near-white/light-gray two rounds ago) — `bodyMat`/`armMat`/`hubMat`/`ductMat`/`antennaMat` all
+  darkened; tail and rear LED stay vivid, unaffected. (2) "Changing boundary once created is not
+  needed" — removed the flying-phase `X` → `enterCalibrating()` path entirely (previously let the
+  pilot redo the whole boundary mid-session); the *in-progress-walk* "clear points, start over"
+  (also on `X`, but only reachable before the loop closes, via `CalibrationInput.redoBoundaryRequested`)
+  is untouched — that's a different capability ("undo a mistake while still walking"), not
+  "changing an already-created boundary." (3) `X` is now free during flight, so it's repurposed as
+  the new model-switch button (`FrameInput.redoBoundaryRequested` renamed to
+  `modelSwitchRequested`, same physical binding). Added `src/render/FlightModel.ts`: a minimal
+  interface (`root`/`update()`/`triggerBump()`) both `DroneModel` and the new `HelicopterModel`
+  implement, plus `disposeFlightModel()` (traverses and disposes geometry/materials — switching
+  models would otherwise leak GPU resources on every press). `main.ts` holds an array of model
+  *factories* (not instances) and an index; `switchDroneModel()` removes+disposes the old
+  `drone.root`, builds a fresh instance from the next factory, adds it to the scene. (4) New
+  `src/render/HelicopterModel.ts`: user linked a Google Images result for a toy RC helicopter
+  (green/black Wembley-style toy) as a reference — the linked URL is a Google Images viewer wrapping
+  a Myntra product photo, which isn't something `WebFetch` can actually see (it converts HTML to
+  markdown, no image content extraction), so the model was built from well-known toy-helicopter
+  conventions instead of the literal reference image: bulbous fuselage + dark tinted canopy, skid
+  landing gear (2 skids + 4 struts), a tapering tail boom ending in a fin/stabilizer + small tail
+  rotor, and a single two-blade main rotor on a mast with red tip accents, green/black colorway.
+  Purely a visual alternative — same quadcopter physics/telemetry drive both models' `update()`
+  identically (main/tail rotor spin from the mean of `motorNormalized` instead of per-motor prop
+  spin). **Flagged to the user that the helicopter's exact look is a best-effort approximation, not
+  a verified match to their reference image** — worth a look and feedback once tested. Build
+  verified green via GitHub Actions.
 
 ## Next steps (keep this section current)
 The app is deployed live (GitHub Pages, Actions-based deploy) and feature-complete: manual
-walk-the-room calibration boundary (no circle fallback), a toggleable fixed 9ft ceiling boundary,
-wall-bump visual feedback, and a brightened drone model with a prominent tail. Nothing is currently
-blocking. Remaining items:
+walk-the-room calibration boundary (no circle fallback, can't be redone once created), a toggleable
+fixed 9ft ceiling boundary, wall-bump visual feedback, a black drone model with a prominent tail,
+and a switchable toy-helicopter alternative model. Nothing is currently blocking. Remaining items:
 - [ ] Real in-headset testing pass (the one thing that genuinely can't be done from this
       machine) — flight feel (PID gains, drag, max angles/rates in `constants.ts`) is
       headless-sim-validated for physical plausibility but never felt by a human in AR.
 - [ ] On-device validation of everything from this session's redesigns: does the
-      trigger-engage/A-reset/X-redo-boundary/Y-mode/B-ceiling/both-grips-kill mapping feel natural,
+      trigger-engage/A-reset/X-model-switch/Y-mode/B-ceiling/both-grips-kill mapping feel natural,
       does auto-closing the calibration loop at 0.4m feel right, does `gripSpace ?? targetRaySpace`
       give a stable x/z reading while standing still, is the tail visible/helpful for orientation,
-      does the wall-bump squash pulse read well or feel too subtle/too much, and does 9ft feel like
-      the right default ceiling height for real rooms.
-- [ ] Everything else is genuinely done: physics, XR session + calibrated boundary (floor + toggleable
-      ceiling), input (controller + keyboard), render, HUD, audio, HTTPS dev server, README, GitHub
-      Pages deployment, two independent review passes, 34/34 physics tests + full smoke test + clean
-      build.
+      does the wall-bump squash pulse read well or feel too subtle/too much, does 9ft feel like the
+      right default ceiling height, and — new — **does the helicopter model actually resemble what
+      the user had in mind** (built from general toy-heli conventions, not a verified image match).
+- [ ] Everything else is genuinely done: physics, XR session + calibrated boundary (floor +
+      toggleable ceiling), input (controller + keyboard), render (2 switchable models), HUD, audio,
+      HTTPS dev server, README, GitHub Pages deployment, two independent review passes, 34/34
+      physics tests + full smoke test + clean build.
