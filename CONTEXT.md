@@ -246,14 +246,41 @@ README.md             User-facing setup/controls/safety/troubleshooting docs.
   Actions build (confirmed green, including the new ambient types compiling clean) — **real
   in-headset testing of the scan (does `semanticLabel: 'floor'` actually show up, timing feel,
   extra permission prompts) is still the user's job, explicitly flagged as unverifiable from here.**
+- **On-device test came back: the plane-detection scan was broken.** User report: "the boundary
+  was drawn as a square but the square is not the room boundary, the square often passed through
+  the walls" — on a headset that had already completed Meta's own Room Setup. Web research
+  confirmed this is a known, long-standing Meta/Quest WebXR limitation (Meta community forums):
+  both Guardian's `bounded-floor` `boundsGeometry` *and* `plane-detection`'s per-surface rectangles
+  return coarse/generic rectangular approximations rather than the true room polygon, even with
+  Room Setup completed — so this wasn't an implementation bug, both automatic OS-derived-geometry
+  approaches are simply not trustworthy enough here. **Replaced entirely with a guided manual
+  walk-the-room calibration** (user's explicit choice among automatic/guided-walk/manual-draw
+  options): after entering AR, the pilot walks to each corner of their flying space and drops a
+  boundary point with the right controller trigger (standing at the corner — no floor raycasting),
+  right grip undoes the last point, left X finishes (needs ≥3 points), left Y skips straight to the
+  default circle. Renamed the phase machine `'scanning'` → `'calibrating'`; added
+  `ControllerInput.pollCalibration()` (reuses the existing per-hand rising-edge scratch state,
+  resolves the right controller's `gripSpace ?? targetRaySpace` pose into `local-floor` x/z via
+  `frame.getPose()`, same pose-matrix-reading shape as the removed `getFloorPolygon`); added
+  `SceneSetup.setCalibrationPointer()` (persistent per-frame ghost ring, no dispose/recreate),
+  `setCalibrationPoints()` (corner markers + open polyline, rebuilt only on place/undo), and
+  `clearCalibrationVisuals()`. Removed `'plane-detection'` from session features, deleted
+  `getFloorPolygon()`/`polygonArea()` and the `webxr-plane-detection.d.ts` ambient types entirely —
+  no plane/mesh-detection API is used anywhere anymore. `RoomBoundary`'s `setPolygon()`/
+  `MIN_PLAUSIBLE_RADIUS_M` sanity gate needed no logic changes (already fully generic to polygon
+  source), just a reworded comment. Build verified green via GitHub Actions (still no local
+  Node/npm in this sandbox) — **on-device feel of the new calibration flow (pose stability while
+  standing still, whether the button mapping feels natural, whether this is actually more
+  trustworthy than the abandoned scan) is, once again, the user's job to verify.**
 
 ## Known limitations / accepted tradeoffs (not bugs)
-- Room boundary is now sourced from a real WebXR `plane-detection` floor-plane scan on session
-  start (see progress log), with a 4m fallback circle only if no plausible floor plane is found
-  within an 8s scan timeout (shrunk further if a small-but-plausible-ish scan hints the real room
-  is smaller). Floor-plane polygon only — no merging of vertical wall planes, and no live-updating
-  boundary line while still scanning (drawn once, when the scan concludes); both explicitly
-  deferred as v2 ideas, not gaps.
+- Room boundary is now sourced from manual walk-the-room calibration on session start (pilot walks
+  each corner, places a point per corner with the right trigger — see progress log), with a 4m
+  fallback circle if the pilot skips calibration or places too few/too-close-together points
+  (shrunk further if a small-but-plausible-ish attempt hints the real room is smaller). Both
+  Guardian `bounded-floor` and WebXR `plane-detection` were tried first and abandoned as
+  unreliable on real Quest hardware (documented Meta/Quest limitation, not an app bug) — no
+  automatic OS-derived room geometry is used anywhere anymore.
 - ACRO mode's throttle is still spring-stick-centered (Quest thumbsticks have no ratchet), which
   happens to equal exactly hover thrust at center by design (`THRUST_TO_WEIGHT_MAX = 2.0` makes
   `ACRO_HOVER_THROTTLE = 0.5`) — intentional, documented in `constants.ts`.
@@ -270,19 +297,17 @@ README.md             User-facing setup/controls/safety/troubleshooting docs.
 
 ## Next steps (keep this section current)
 The app is deployed live (GitHub Pages, Actions-based deploy) and feature-complete including a
-real room-scan boundary. Nothing is currently blocking. Remaining items:
+manual walk-the-room calibration boundary (replacing two abandoned automatic-scan attempts).
+Nothing is currently blocking. Remaining items:
 - [ ] Real in-headset testing pass (the one thing that genuinely can't be done from this
       machine) — flight feel (PID gains, drag, max angles/rates in `constants.ts`) is
       headless-sim-validated for physical plausibility but never felt by a human in AR.
-- [ ] On-device validation of the room-scan feature specifically: does Quest Browser actually
-      populate `detectedPlanes` with a `semanticLabel: 'floor'` plane, how fast/reliably it
-      stabilizes (tune `SCAN_STABLE_FRAMES_REQUIRED`/`SCAN_TIMEOUT_MS` in `main.ts` after seeing
-      real timing), whether `'plane-detection'` triggers an extra OS permission prompt, and
-      whether the scanned polygon is well-formed enough for `RoomBoundary`'s point-in-polygon math
-      (only ever exercised against Guardian's simpler shapes before).
-- [ ] Possible v2 ideas, explicitly deferred: merging vertical wall planes into the boundary
-      (floor-plane-only for now) and a live-updating boundary line while still scanning.
-- [ ] Everything else is genuinely done: physics, XR session + room-scan boundary, input
+- [ ] On-device validation of the calibration feature specifically: does `gripSpace ??
+      targetRaySpace` give a stable x/z reading while standing still at a corner (vs. pose
+      jitter), does the right-trigger-place/right-grip-undo/left-X-finish/left-Y-skip mapping feel
+      natural (right grip and right trigger are physically close — fat-finger risk), and does the
+      resulting polygon actually match the real room when checked against known corners.
+- [ ] Everything else is genuinely done: physics, XR session + calibrated boundary, input
       (controller + keyboard), render, HUD, audio, HTTPS dev server, README, GitHub Pages
       deployment, two independent review passes, 34/34 physics tests + full smoke test + clean
       build.
