@@ -27,11 +27,10 @@ export class RoomBoundary {
   private configuredFallbackRadius = DEFAULT_RADIUS_M;
   private effectiveFallbackRadius = DEFAULT_RADIUS_M;
 
-  // Field reports (Meta community forums, 2025-2026) show `bounded-floor` boundsGeometry in
-  // immersive-ar sessions is frequently a degenerate ~tiny square, NOT the real room, on current
-  // Horizon OS (Guardian hand-drawing was replaced by automatic Space Setup and passthrough has
-  // worked with Guardian disabled since 2021). A polygon this small is more likely OS noise than
-  // a genuinely tiny room, so its exact SHAPE is rejected in favor of the circular fallback — but
+  // A room-scan polygon (WebXR plane-detection floor plane, see XRSessionManager.getFloorPolygon)
+  // can end up implausibly small if the scan is cut short (timeout) before the headset has looked
+  // around enough of the room. A polygon this small is more likely an incomplete scan than a
+  // genuinely tiny room, so its exact SHAPE is rejected in favor of the circular fallback — but
   // its size is still taken as a conservative hint (see setPolygon): if the real room genuinely
   // is that small, using the larger default circle instead would fail unsafe (letting the drone
   // fly past a real nearby wall the polygon was trying to warn about).
@@ -79,12 +78,12 @@ export class RoomBoundary {
 
   /**
    * What's actually in effect right now, for drawing the boundary line — deliberately NOT the
-   * same as the raw `XRSessionManager.boundaryPolygon`, since that's pre-sanity-check: if this
-   * class rejected it as an implausible guardian reading, the visual must show the real (circle)
+   * same as the raw scan polygon passed into setPolygon(), since that's pre-sanity-check: if this
+   * class rejected it as an implausible scan reading, the visual must show the real (circle)
    * fallback it's actually colliding against, not a shape nothing is enforcing anymore.
    */
-  getVisualBoundary(): { polygon: BoundaryPoint[] | null; radius: number; isGuardianPolygon: boolean } {
-    return { polygon: this.polygon, radius: this.effectiveFallbackRadius, isGuardianPolygon: this.polygon !== null };
+  getVisualBoundary(): { polygon: BoundaryPoint[] | null; radius: number; isScannedPolygon: boolean } {
+    return { polygon: this.polygon, radius: this.effectiveFallbackRadius, isScannedPolygon: this.polygon !== null };
   }
 
   /**

@@ -12,7 +12,7 @@ import {
 import type { BoundaryPoint } from '../xr/XRSessionManager';
 
 const BOUNDARY_Y = 0.01;
-const GUARDIAN_BOUNDARY_COLOR = 0x4fd1c5; // cyan: a real (sanity-checked) headset guardian reading
+const SCANNED_BOUNDARY_COLOR = 0x4fd1c5; // cyan: a real (sanity-checked) room-scan reading
 const FALLBACK_BOUNDARY_COLOR = 0xd9a441; // amber: safe-default circle, not the real room shape
 const CIRCLE_SEGMENTS = 48;
 
@@ -45,8 +45,8 @@ export class SceneSetup {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
 
-  /** Draws a glowing line loop on the floor marking the safe-fly boundary (Guardian polygon or fallback circle). */
-  setBoundaryVisual(boundary: { polygon: BoundaryPoint[] | null; radius: number; isGuardianPolygon: boolean }): void {
+  /** Draws a glowing line loop on the floor marking the safe-fly boundary (scanned room polygon or fallback circle). */
+  setBoundaryVisual(boundary: { polygon: BoundaryPoint[] | null; radius: number; isScannedPolygon: boolean }): void {
     if (this.boundaryLine) {
       this.scene.remove(this.boundaryLine);
       this.boundaryLine.geometry.dispose();
@@ -62,7 +62,7 @@ export class SceneSetup {
 
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
-    const color = boundary.isGuardianPolygon ? GUARDIAN_BOUNDARY_COLOR : FALLBACK_BOUNDARY_COLOR;
+    const color = boundary.isScannedPolygon ? SCANNED_BOUNDARY_COLOR : FALLBACK_BOUNDARY_COLOR;
     const material = new LineBasicMaterial({ color, transparent: true, opacity: 0.55 });
     this.boundaryLine = new Line(geometry, material);
     this.scene.add(this.boundaryLine);

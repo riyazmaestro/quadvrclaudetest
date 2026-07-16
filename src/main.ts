@@ -3,7 +3,7 @@ import { Vector3 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { SceneSetup } from './render/SceneSetup';
 import { DroneModel } from './render/DroneModel';
-import { XRSessionManager } from './xr/XRSessionManager';
+import { XRSessionManager, type BoundaryPoint } from './xr/XRSessionManager';
 import { RoomBoundary } from './xr/RoomBoundary';
 import { ControllerInput } from './input/ControllerInput';
 import { KeyboardInput } from './input/KeyboardInput';
@@ -13,9 +13,15 @@ import { FIXED_DT, BODY_RADIUS } from './physics/constants';
 import { Hud, type HudData } from './ui/Hud';
 import { MotorAudio } from './audio/MotorAudio';
 
-const FALLBACK_ARENA_RADIUS_M = 2.5;
+const FALLBACK_ARENA_RADIUS_M = 4;
 const MAX_SUBSTEPS_PER_FRAME = 8;
 const SPAWN_POSITION = new Vector3(0, 1, -1);
+// Consecutive frames a plane-detection floor reading must keep showing up before the scan locks
+// in — not a shape/stability comparison (too fussy given plane-detection keeps refining the same
+// physical plane frame to frame), just "did we see a real floor at all," repeated for ~1-1.5s of
+// typical Quest frame rates so a single noisy/missing-plane frame can't finalize (or reset) early.
+const SCAN_STABLE_FRAMES_REQUIRED = 90;
+const SCAN_TIMEOUT_MS = 8000;
 
 const sceneSetup = new SceneSetup();
 const drone = new DroneModel();
@@ -37,6 +43,8 @@ const statusLine = document.getElementById('status-line') as HTMLParagraphElemen
 const enterArBtn = document.getElementById('enter-ar-btn') as HTMLButtonElement;
 const landing = document.getElementById('landing') as HTMLDivElement;
 const hudRoot = document.getElementById('hud-root') as HTMLDivElement;
+const scanOverlay = document.getElementById('scan-overlay') as HTMLDivElement;
+const scanOverlayText = document.getElementById('scan-overlay-text') as HTMLParagraphElement;
 
 // Desktop preview: lets the app be developed/tested without a headset (see scripts/smokeTest.ts).
 sceneSetup.camera.position.set(0, 1.4, 1.4);
@@ -47,22 +55,45 @@ orbitControls.update();
 let flightStartTime = performance.now();
 let wasArmed = false;
 
+// The app's only phase state: 'landing' (pre-session) -> 'scanning' (session just started, room
+// being mapped) -> 'flying' (boundary locked in, physics/input live). Flight stays gated off
+// during 'scanning' so the drone can't be armed before its boundary actually means anything.
+type Phase = 'landing' | 'scanning' | 'flying';
+let phase: Phase = 'landing';
+let scanStableFrames = 0;
+let scanStartTime = 0;
+let lastPlausiblePolygon: BoundaryPoint[] | null = null;
+
+/** Locks in the boundary (scanned polygon, or null to fall back to the circle) and starts flight. */
+function finishScan(polygon: BoundaryPoint[] | null): void {
+  roomBoundary.setPolygon(polygon);
+  sceneSetup.setBoundaryVisual(roomBoundary.getVisualBoundary());
+  physics.reset(SPAWN_POSITION.clone());
+  flightStartTime = performance.now();
+  motorAudio.start();
+  scanOverlay.classList.remove('visible');
+  phase = 'flying';
+}
+
 const xrSessionManager = new XRSessionManager(sceneSetup.renderer, hudRoot, {
   onSessionStart: (session) => {
     controllerInput.setSession(session);
     landing.style.display = 'none';
     orbitControls.enabled = false;
-    roomBoundary.setPolygon(xrSessionManager.boundaryPolygon);
-    sceneSetup.setBoundaryVisual(roomBoundary.getVisualBoundary());
-    physics.reset(SPAWN_POSITION.clone());
-    flightStartTime = performance.now();
-    motorAudio.start();
+    phase = 'scanning';
+    scanStableFrames = 0;
+    scanStartTime = performance.now();
+    lastPlausiblePolygon = null;
+    scanOverlayText.textContent = 'Look around the room to map your flying space…';
+    scanOverlay.classList.add('visible');
   },
   onSessionEnd: () => {
     controllerInput.setSession(null);
     landing.style.display = '';
     orbitControls.enabled = true;
     motorAudio.stop();
+    scanOverlay.classList.remove('visible');
+    phase = 'landing';
   },
   onVisibilityChange: (visibilityState) => {
     // If the user lifts/removes the headset mid-flight they can no longer see the drone (or the
@@ -108,56 +139,76 @@ const hudDataScratch: HudData = {
   flightTimeS: 0,
 };
 
-sceneSetup.renderer.setAnimationLoop(() => {
+sceneSetup.renderer.setAnimationLoop((_time, frame) => {
   const now = performance.now();
   const frameDt = Math.min(0.25, (now - lastFrameTime) / 1000);
   lastFrameTime = now;
 
-  const activeInput: InputSource = xrSessionManager.isPresenting ? controllerInput : keyboardInput;
-  const frameInput = activeInput.poll();
+  if (phase === 'scanning') {
+    const referenceSpace = sceneSetup.renderer.xr.getReferenceSpace();
+    const candidate = frame && referenceSpace ? xrSessionManager.getFloorPolygon(frame, referenceSpace) : null;
+    scanStableFrames = candidate ? scanStableFrames + 1 : 0;
+    if (candidate) lastPlausiblePolygon = candidate;
+    scanOverlayText.textContent = candidate
+      ? `Mapping room… ${Math.min(scanStableFrames, SCAN_STABLE_FRAMES_REQUIRED)}/${SCAN_STABLE_FRAMES_REQUIRED}`
+      : 'Look around the room to map your flying space…';
 
-  physics.setArmed(frameInput.armed);
-  if (frameInput.resetRequested) {
-    physics.reset(SPAWN_POSITION.clone());
-  }
-  if (physics.armed && !wasArmed) flightStartTime = now; // rising edge only, so a mid-flight disarm+rearm restarts the timer
-  wasArmed = physics.armed;
-
-  accumulator = Math.min(accumulator + frameDt, FIXED_DT * MAX_SUBSTEPS_PER_FRAME);
-  let substeps = 0;
-  while (accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS_PER_FRAME) {
-    physics.step(FIXED_DT, frameInput, 0);
-    roomBoundary.resolve(physics.position, physics.velocity, BODY_RADIUS);
-    accumulator -= FIXED_DT;
-    substeps++;
+    if (scanStableFrames >= SCAN_STABLE_FRAMES_REQUIRED) {
+      finishScan(lastPlausiblePolygon);
+    } else if (now - scanStartTime > SCAN_TIMEOUT_MS) {
+      finishScan(null); // No plausible floor found in time — RoomBoundary falls back to the circle.
+    }
   }
 
-  const telemetry = physics.getTelemetry(0);
-  drone.root.position.copy(telemetry.position);
-  drone.root.quaternion.copy(telemetry.quaternion);
-  drone.update(frameDt, telemetry.motorNormalized, telemetry.armed);
+  // Gated off during 'scanning' so the drone can't be armed/stepped before its boundary is locked
+  // in; always runs on desktop (no XR session ever enters 'scanning' there, see onSessionStart).
+  if (phase === 'flying' || !xrSessionManager.isPresenting) {
+    const activeInput: InputSource = xrSessionManager.isPresenting ? controllerInput : keyboardInput;
+    const frameInput = activeInput.poll();
 
-  const boundaryProximity = roomBoundary.proximity(telemetry.position.x, telemetry.position.z, BODY_RADIUS);
-  motorAudio.update(telemetry.motorNormalized, telemetry.armed);
+    physics.setArmed(frameInput.armed);
+    if (frameInput.resetRequested) {
+      physics.reset(SPAWN_POSITION.clone());
+    }
+    if (physics.armed && !wasArmed) flightStartTime = now; // rising edge only, so a mid-flight disarm+rearm restarts the timer
+    wasArmed = physics.armed;
 
-  hudDataScratch.armed = telemetry.armed;
-  hudDataScratch.flightMode = frameInput.flightMode;
-  hudDataScratch.altitudeM = telemetry.altitudeM;
-  hudDataScratch.speedMs = telemetry.speedMs;
-  hudDataScratch.boundaryProximity = boundaryProximity;
-  hudDataScratch.flightTimeS = telemetry.armed ? (now - flightStartTime) / 1000 : 0;
-  hud.update(hudDataScratch, sceneSetup.camera, frameDt);
+    accumulator = Math.min(accumulator + frameDt, FIXED_DT * MAX_SUBSTEPS_PER_FRAME);
+    let substeps = 0;
+    while (accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS_PER_FRAME) {
+      physics.step(FIXED_DT, frameInput, 0);
+      roomBoundary.resolve(physics.position, physics.velocity, BODY_RADIUS);
+      accumulator -= FIXED_DT;
+      substeps++;
+    }
+
+    const telemetry = physics.getTelemetry(0);
+    drone.root.position.copy(telemetry.position);
+    drone.root.quaternion.copy(telemetry.quaternion);
+    drone.update(frameDt, telemetry.motorNormalized, telemetry.armed);
+
+    const boundaryProximity = roomBoundary.proximity(telemetry.position.x, telemetry.position.z, BODY_RADIUS);
+    motorAudio.update(telemetry.motorNormalized, telemetry.armed);
+
+    hudDataScratch.armed = telemetry.armed;
+    hudDataScratch.flightMode = frameInput.flightMode;
+    hudDataScratch.altitudeM = telemetry.altitudeM;
+    hudDataScratch.speedMs = telemetry.speedMs;
+    hudDataScratch.boundaryProximity = boundaryProximity;
+    hudDataScratch.flightTimeS = telemetry.armed ? (now - flightStartTime) / 1000 : 0;
+    hud.update(hudDataScratch, sceneSetup.camera, frameDt);
+
+    if (import.meta.env.DEV) {
+      // Dev-only hook: lets a headless smoke test (see scripts/smokeTest.ts) assert on real
+      // simulation state without a headset. Dead-code-eliminated from production builds.
+      (window as unknown as { __quadDebug: unknown }).__quadDebug = {
+        telemetry,
+        frameInput,
+        isPresenting: xrSessionManager.isPresenting,
+      };
+    }
+  }
 
   if (!xrSessionManager.isPresenting) orbitControls.update();
   sceneSetup.renderer.render(sceneSetup.scene, sceneSetup.camera);
-
-  if (import.meta.env.DEV) {
-    // Dev-only hook: lets a headless smoke test (see scripts/smokeTest.ts) assert on real
-    // simulation state without a headset. Dead-code-eliminated from production builds.
-    (window as unknown as { __quadDebug: unknown }).__quadDebug = {
-      telemetry,
-      frameInput,
-      isPresenting: xrSessionManager.isPresenting,
-    };
-  }
 });

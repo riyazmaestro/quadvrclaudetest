@@ -91,3 +91,22 @@ html, body {
 #hud-root.visible {
   display: block;
 }
+
+.scan-overlay {
+  display: none;
+  position: absolute;
+  top: 12%;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 22rem;
+  padding: 1rem 1.4rem;
+  border-radius: 1rem;
+  background: rgba(11, 14, 20, 0.7);
+  text-align: center;
+  font-size: 1.05rem;
+  line-height: 1.5;
+}
+
+.scan-overlay.visible {
+  display: block;
+}

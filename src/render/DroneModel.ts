@@ -88,7 +88,7 @@ export class DroneModel {
 
     // Cosmetic only — shrinks the visual model without touching ARM_LENGTH/BODY_RADIUS,
     // so flight physics and collision size are unaffected.
-    this.root.scale.setScalar(0.75);
+    this.root.scale.setScalar(0.5);
   }
 
   /** Advances cosmetic propeller spin. `motorNormalized` is 0..1 per motor from physics telemetry. */
