@@ -272,24 +272,44 @@ README.md             User-facing setup/controls/safety/troubleshooting docs.
   Node/npm in this sandbox) — **on-device feel of the new calibration flow (pose stability while
   standing still, whether the button mapping feels natural, whether this is actually more
   trustworthy than the abandoned scan) is, once again, the user's job to verify.**
+- **User feedback on the calibration UX round above: controls were confusing and the finish/undo/
+  skip button scheme was too fiddly; also wanted the circular fallback gone entirely.** Redesigned
+  again, same day: (1) **Controls remapped** — right trigger is now the sole engage/disengage
+  toggle (edge-triggered, replacing grip); **A** resets the drone to the room's centroid (was Y,
+  was "your feet"); **X** re-walks the boundary from scratch, callable anytime including mid-flight
+  (was the calibration "finish" button); **Y** now carries the ACRO/ANGLE mode toggle (was A);
+  emergency kill switch moved from both-triggers to **both grips held**. (2) **Calibration UX
+  simplified to a single action**: no more separate finish/undo/skip buttons — right trigger places
+  a corner point, and placing one within `CLOSE_LOOP_DISTANCE_M = 0.4` of the very first point
+  (once ≥3 exist) auto-closes the loop and starts flight, mirroring how the pilot would naturally
+  walk back to their starting corner. `X` (redoBoundaryRequested) just clears the in-progress
+  points and starts over; there's no explicit "finish" action left to forget. (3) **Circular
+  fallback removed entirely, per explicit request** — `RoomBoundary` no longer has *any* circle
+  concept (`DEFAULT_RADIUS_M`/`setFallbackRadius`/`MIN_PLAUSIBLE_RADIUS_M`/`signedDistanceCircle`/
+  `pushOutCircle`/`circlePoints` all deleted); it's now unconditionally polygon-based, with a new
+  `hasPolygon()` guard main.ts checks before calling `resolve()`/`proximity()` (needed because the
+  desktop keyboard-preview path never calibrates and would otherwise call polygon math on an empty
+  array). Flight is simply impossible until a real boundary has been walked and closed — there is
+  no way to skip it anymore. (4) Added a bright amber tail rod+flag to `DroneModel` (nothing
+  equivalent up front) so forward/backward reads at a glance in-headset. Updated the HUD's
+  disarmed hint text, `index.html`'s instructions, and `README.md`'s controls table/safety section
+  to match throughout — a stale "Squeeze grip to arm" HUD string from the old scheme was caught and
+  fixed during this pass. Build verified green via GitHub Actions.
 
 ## Known limitations / accepted tradeoffs (not bugs)
-- Room boundary is now sourced from manual walk-the-room calibration on session start (pilot walks
-  each corner, places a point per corner with the right trigger — see progress log), with a 4m
-  fallback circle if the pilot skips calibration or places too few/too-close-together points
-  (shrunk further if a small-but-plausible-ish attempt hints the real room is smaller). Both
-  Guardian `bounded-floor` and WebXR `plane-detection` were tried first and abandoned as
-  unreliable on real Quest hardware (documented Meta/Quest limitation, not an app bug) — no
-  automatic OS-derived room geometry is used anywhere anymore.
+- Room boundary is now sourced *exclusively* from manual walk-the-room calibration (pilot walks the
+  edge, places a corner point per right-trigger pull, closes the loop by returning to the first
+  point) — see progress log for the two abandoned automatic-scan attempts (Guardian `bounded-floor`,
+  then WebXR `plane-detection`) that led here. **There is no fallback circle of any kind** — flight
+  cannot start without a real, closed, ≥3-point polygon.
 - ACRO mode's throttle is still spring-stick-centered (Quest thumbsticks have no ratchet), which
   happens to equal exactly hover thrust at center by design (`THRUST_TO_WEIGHT_MAX = 2.0` makes
   `ACRO_HOVER_THROTTLE = 0.5`) — intentional, documented in `constants.ts`.
-- Wall-crash threshold (`WALL_CRASH_SPEED_THRESHOLD = 2.0`) is calibrated for the *default* 1.75m
-  arena; if `RoomBoundary` shrinks the effective radius further (small real room detected),
-  first-contact speeds will be even lower — a very small room may almost never trigger a wall
-  crash, just gentle bounces. Considered acceptable (better to under-trigger a safety stop near a
-  wall the user is watching than over-trigger one during normal close-quarters flying), but worth
-  revisiting if real-world testing says otherwise.
+- No crash-disarm on impact (removed in `96fae8d`, predates this session): hitting the floor or
+  the boundary wall used to auto-disarm above a speed/tilt threshold, but that also fired
+  immediately on session start (drone spawns disarmed and free-falls before the pilot can arm it).
+  Impacts now just bounce/scrub velocity physically — the drone stays armed and flyable through
+  any collision.
 - Headless-Chromium `requestAnimationFrame` throttling makes wall-clock-timed Playwright
   assertions unreliable for anything speed/timing-sensitive (discovered while testing the
   wall-crash fix) — such cases belong in `scripts/simTest.ts`'s deterministic fixed-step loop
@@ -297,16 +317,18 @@ README.md             User-facing setup/controls/safety/troubleshooting docs.
 
 ## Next steps (keep this section current)
 The app is deployed live (GitHub Pages, Actions-based deploy) and feature-complete including a
-manual walk-the-room calibration boundary (replacing two abandoned automatic-scan attempts).
-Nothing is currently blocking. Remaining items:
+manual walk-the-room calibration boundary with no circle fallback of any kind (see progress log
+for the two abandoned automatic-scan attempts that preceded it, and the same-day controls/UX
+redesign after the first calibration attempt's on-device feedback). Nothing is currently blocking.
+Remaining items:
 - [ ] Real in-headset testing pass (the one thing that genuinely can't be done from this
       machine) — flight feel (PID gains, drag, max angles/rates in `constants.ts`) is
       headless-sim-validated for physical plausibility but never felt by a human in AR.
-- [ ] On-device validation of the calibration feature specifically: does `gripSpace ??
-      targetRaySpace` give a stable x/z reading while standing still at a corner (vs. pose
-      jitter), does the right-trigger-place/right-grip-undo/left-X-finish/left-Y-skip mapping feel
-      natural (right grip and right trigger are physically close — fat-finger risk), and does the
-      resulting polygon actually match the real room when checked against known corners.
+- [ ] On-device validation of THIS round's redesign specifically: does the new
+      trigger-engage/A-reset/X-redo-boundary/Y-mode/both-grips-kill mapping feel natural now, does
+      auto-closing the loop at 0.4m from the start point feel right (too twitchy/too loose?), does
+      `gripSpace ?? targetRaySpace` give a stable x/z reading while standing still at a corner, and
+      is the new tail actually visible/helpful for judging orientation in-headset.
 - [ ] Everything else is genuinely done: physics, XR session + calibrated boundary, input
       (controller + keyboard), render, HUD, audio, HTTPS dev server, README, GitHub Pages
       deployment, two independent review passes, 34/34 physics tests + full smoke test + clean
