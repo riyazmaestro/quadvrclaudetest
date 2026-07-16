@@ -208,12 +208,52 @@ README.md             User-facing setup/controls/safety/troubleshooting docs.
   Full regression after every fix: `tsc --noEmit` clean, 34/34 physics tests (unchanged pass count
   — confirms the hot-path refactors preserved exact behavior, not just "still compiles"), full
   smoke test, production build all pass.
+- **GitHub Pages deployed, then found broken: fixed by switching Pages source to "GitHub Actions".**
+  Added `.github/workflows/deploy-pages.yml` (`npm ci && npm run build` → `upload-pages-artifact` →
+  `deploy-pages`) and a build-only `base: '/quadvrclaudetest/'` in `vite.config.ts`. First deploy
+  reported "success" but the live site actually served the *raw* `index.html` (`<script
+  src="/src/main.ts">`, unprefixed paths) — a browser can't execute a bare `.ts` module or resolve
+  `three` outside Vite, so nothing ever ran and the Enter-AR button stayed stuck on its static
+  "Checking WebXR support…" disabled state forever, on any device. Root cause: the repo's GitHub
+  Pages source was still set to "Deploy from a branch" (classic Pages, serving the raw repo
+  directly), not "GitHub Actions" — so the new workflow's deploy succeeded but was never actually
+  live. Fixed by flipping the Pages source in repo Settings; confirmed via `curl` that the served
+  HTML then had the correct hashed `/quadvrclaudetest/assets/...` bundle paths.
+- **Replaced `bounded-floor` Guardian polygon with a real WebXR `plane-detection` room scan as the
+  boundary source.** User feedback: fallback circle too small / drone too large (bumped circle
+  1.75m → 2.5m → 4m across two rounds; drone visual scale 1.0 → 0.75 → 0.5 — cosmetic only, doesn't
+  touch `ARM_LENGTH`/`BODY_RADIUS`/collision), then asked for the *actual room* to be the boundary
+  rather than any fixed circle. Researched Meta Quest Browser's WebXR `plane-detection` feature
+  (`frame.detectedPlanes`, `XRPlane.orientation`/`.polygon`/`.semanticLabel`) as the modern
+  replacement for Guardian `bounded-floor` (which the app already knew was frequently a degenerate
+  tiny square on current Horizon OS — see below). Added the first explicit phase state machine to
+  the app (`main.ts`: `'landing' → 'scanning' → 'flying'`): on entering AR, a DOM overlay inside
+  `#hud-root` (`#scan-overlay`, previously an empty div only used as the dom-overlay root) prompts
+  "Look around the room to map your flying space…"; each frame, `XRSessionManager.getFloorPolygon()`
+  reads `detectedPlanes`, prefers a `semanticLabel === 'floor'` plane else the largest horizontal
+  one, and transforms its polygon into `local-floor` space via the plane's pose matrix. Flight
+  (arming/physics/motor audio) is gated off during scanning; the scan locks in once a floor reading
+  has appeared for ~90 consecutive frames (~1-1.5s), or falls back to the circle after an 8s
+  timeout — deliberately no shape/stability diffing between frames, just "did a real (≥3-point)
+  polygon show up," with `RoomBoundary.setPolygon()`'s existing `MIN_PLAUSIBLE_RADIUS_M = 0.9`
+  sanity gate (unchanged) left as sole authority on whether it's *large enough* to trust. Removed
+  `tryFetchBoundary()`/`bounded-floor` entirely rather than keeping both as competing sources.
+  Renamed `isGuardianPolygon`/`GUARDIAN_BOUNDARY_COLOR` → `isScannedPolygon`/`SCANNED_BOUNDARY_COLOR`
+  since the boundary line's cyan/amber distinction is no longer Guardian-specific. Added an ambient
+  `src/xr/webxr-plane-detection.d.ts` (plane-detection is a separate incubating spec, not yet in
+  `lib.dom.d.ts`) declaring `XRPlane`/`XRPlaneSet`/`XRFrame.detectedPlanes`. No Node/npm available
+  in this dev sandbox to run `tsc`/`vite build` locally, so verification relied on the GitHub
+  Actions build (confirmed green, including the new ambient types compiling clean) — **real
+  in-headset testing of the scan (does `semanticLabel: 'floor'` actually show up, timing feel,
+  extra permission prompts) is still the user's job, explicitly flagged as unverifiable from here.**
 
 ## Known limitations / accepted tradeoffs (not bugs)
-- Guardian boundary polygon is best-effort only; safe default is a 1.75m fallback circle (shrunk
-  further if a small-but-plausible-ish polygon hints the real room is smaller). No depth/mesh-API
-  furniture awareness (plane/mesh-detection is still fairly early per the research pass; noted as
-  a possible future enhancement, not attempted).
+- Room boundary is now sourced from a real WebXR `plane-detection` floor-plane scan on session
+  start (see progress log), with a 4m fallback circle only if no plausible floor plane is found
+  within an 8s scan timeout (shrunk further if a small-but-plausible-ish scan hints the real room
+  is smaller). Floor-plane polygon only — no merging of vertical wall planes, and no live-updating
+  boundary line while still scanning (drawn once, when the scan concludes); both explicitly
+  deferred as v2 ideas, not gaps.
 - ACRO mode's throttle is still spring-stick-centered (Quest thumbsticks have no ratchet), which
   happens to equal exactly hover thrust at center by design (`THRUST_TO_WEIGHT_MAX = 2.0` makes
   `ACRO_HOVER_THROTTLE = 0.5`) — intentional, documented in `constants.ts`.
@@ -229,14 +269,20 @@ README.md             User-facing setup/controls/safety/troubleshooting docs.
   instead, `scripts/smokeTest.ts` should stick to logic/state assertions, not timing-derived ones.
 
 ## Next steps (keep this section current)
-The app is feature-complete and has been through two independent review passes (correctness, then
-efficiency/simplification) with every finding fixed and re-verified. Nothing is currently blocking.
-Remaining items are all optional polish, only worth picking up if there's still time/appetite:
+The app is deployed live (GitHub Pages, Actions-based deploy) and feature-complete including a
+real room-scan boundary. Nothing is currently blocking. Remaining items:
 - [ ] Real in-headset testing pass (the one thing that genuinely can't be done from this
       machine) — flight feel (PID gains, drag, max angles/rates in `constants.ts`) is
       headless-sim-validated for physical plausibility but never felt by a human in AR.
-- [ ] Consider plane/mesh-detection as an opt-in enhancement to the boundary system if a future
-      research check finds it's matured beyond "fairly early" — explicitly deferred, not started.
-- [ ] Everything else is genuinely done: physics, XR session + boundary, input (controller +
-      keyboard), render, HUD, audio, HTTPS dev server, README, two independent review passes,
-      34/34 physics tests + full smoke test + clean build.
+- [ ] On-device validation of the room-scan feature specifically: does Quest Browser actually
+      populate `detectedPlanes` with a `semanticLabel: 'floor'` plane, how fast/reliably it
+      stabilizes (tune `SCAN_STABLE_FRAMES_REQUIRED`/`SCAN_TIMEOUT_MS` in `main.ts` after seeing
+      real timing), whether `'plane-detection'` triggers an extra OS permission prompt, and
+      whether the scanned polygon is well-formed enough for `RoomBoundary`'s point-in-polygon math
+      (only ever exercised against Guardian's simpler shapes before).
+- [ ] Possible v2 ideas, explicitly deferred: merging vertical wall planes into the boundary
+      (floor-plane-only for now) and a live-updating boundary line while still scanning.
+- [ ] Everything else is genuinely done: physics, XR session + room-scan boundary, input
+      (controller + keyboard), render, HUD, audio, HTTPS dev server, README, GitHub Pages
+      deployment, two independent review passes, 34/34 physics tests + full smoke test + clean
+      build.
