@@ -1,3 +1,5 @@
+Session ID: 115a09f2-ed46-49c2-b978-e48ec6ac84b5
+
 # Quad Flight XR — Project Context Log
 
 Live progress log, updated regularly throughout development. Read this first if resuming work.

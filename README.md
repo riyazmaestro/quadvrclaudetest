@@ -84,7 +84,7 @@ conservative:
 
 - The app tries to read your headset's Guardian/boundary data to know your room's real shape, but
   that data has been found to be unreliable in AR passthrough mode on current headset software
-  (see `CONTEXT.md` for details) — so by default it constrains flight to a **1.75m-radius circle**
+  (see `CONTEXT.md` for details) — so by default it constrains flight to a **2.5m-radius circle**
   around wherever you started, shrinking further if the headset's own boundary hints at a smaller
   space. It does **not** know where your couch, TV, or walls actually are beyond that. Pick a spot
   with clear space in all directions before arming.

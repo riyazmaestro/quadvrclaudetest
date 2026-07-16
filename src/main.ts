@@ -13,7 +13,7 @@ import { FIXED_DT, BODY_RADIUS } from './physics/constants';
 import { Hud, type HudData } from './ui/Hud';
 import { MotorAudio } from './audio/MotorAudio';
 
-const FALLBACK_ARENA_RADIUS_M = 1.75;
+const FALLBACK_ARENA_RADIUS_M = 2.5;
 const MAX_SUBSTEPS_PER_FRAME = 8;
 const SPAWN_POSITION = new Vector3(0, 1, -1);
 

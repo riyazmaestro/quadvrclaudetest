@@ -4,7 +4,7 @@ import type { BoundaryPoint } from './XRSessionManager';
 // Guardian boundary polygons are convex in practice but winding direction (CW/CCW) is not
 // guaranteed by the spec, so inward-normal sign is resolved per-edge against the polygon
 // centroid rather than assumed from winding order.
-const DEFAULT_RADIUS_M = 1.75;
+const DEFAULT_RADIUS_M = 2.5;
 const PROXIMITY_WARN_MARGIN_M = 0.5;
 const WALL_RESTITUTION = 0.35;
 
